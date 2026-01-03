@@ -1,0 +1,141 @@
+"""Dead code detection tool using Vulture."""
+from pathlib import Path
+from typing import Dict, Any, List
+from app.core.base_tool import BaseTool
+from app.core.subprocess_wrapper import SubprocessWrapper
+import logging
+import json
+
+logger = logging.getLogger(__name__)
+
+
+class DeadcodeTool(BaseTool):
+    """Detect unused code using Vulture library."""
+    
+    @property
+    def description(self) -> str:
+        return "Detects unused functions, classes, variables, and imports using Vulture"
+    
+    def analyze(self, project_path: Path) -> Dict[str, Any]:
+        """
+        Analyze code for dead/unused code using Vulture.
+        
+        Args:
+            project_path: Path to the project directory
+            
+        Returns:
+            Dictionary with dead code information
+        """
+        if not self.validate_path(project_path):
+            return {"error": "Invalid path"}
+        
+        try:
+            # Run vulture with JSON output
+            success, stdout, stderr = SubprocessWrapper.run_command(
+                ['vulture', str(project_path), '--min-confidence', '80'],
+                cwd=project_path,
+                timeout=120,
+                check_venv=False
+            )
+            
+            if not success:
+                if "not found" in stderr.lower():
+                    logger.warning("Vulture not installed, falling back to basic analysis")
+                    return self._fallback_analysis(project_path)
+                else:
+                    logger.error(f"Vulture failed: {stderr}")
+                    return {"error": f"Vulture execution failed: {stderr}"}
+            
+            # Parse vulture output
+            dead_items = self._parse_vulture_output(stdout)
+            
+            # Categorize findings
+            dead_functions = [item for item in dead_items if item['type'] == 'function']
+            dead_classes = [item for item in dead_items if item['type'] == 'class']
+            dead_variables = [item for item in dead_items if item['type'] == 'variable']
+            unused_imports = [item for item in dead_items if item['type'] == 'import']
+            
+            return {
+                "dead_functions": dead_functions,
+                "dead_classes": dead_classes,
+                "dead_variables": dead_variables,
+                "unused_imports": unused_imports,
+                "total_dead": len(dead_items),
+                "confidence": "high",
+                "tool": "vulture"
+            }
+        
+        except Exception as e:
+            logger.error(f"Dead code analysis failed: {e}")
+            return {"error": str(e)}
+    
+    def _parse_vulture_output(self, output: str) -> List[Dict[str, Any]]:
+        """Parse vulture text output."""
+        items = []
+        
+        for line in output.strip().split('\n'):
+            if not line or line.startswith('#'):
+                continue
+            
+            # Vulture output format: file:line: message
+            parts = line.split(':', 2)
+            if len(parts) >= 3:
+                file_path = parts[0].strip()
+                line_num = parts[1].strip()
+                message = parts[2].strip()
+                
+                # Determine type from message
+                item_type = 'unknown'
+                if 'function' in message.lower():
+                    item_type = 'function'
+                elif 'class' in message.lower():
+                    item_type = 'class'
+                elif 'variable' in message.lower():
+                    item_type = 'variable'
+                elif 'import' in message.lower():
+                    item_type = 'import'
+                
+                # Extract name
+                name = self._extract_name_from_message(message)
+                
+                items.append({
+                    "file": file_path,
+                    "line": int(line_num) if line_num.isdigit() else 0,
+                    "type": item_type,
+                    "name": name,
+                    "message": message
+                })
+        
+        return items
+    
+    def _extract_name_from_message(self, message: str) -> str:
+        """Extract item name from vulture message."""
+        # Try to extract quoted name
+        if "'" in message:
+            parts = message.split("'")
+            if len(parts) >= 2:
+                return parts[1]
+        
+        # Fallback: take first word after 'unused'
+        words = message.lower().split()
+        if 'unused' in words:
+            idx = words.index('unused')
+            if idx + 2 < len(words):
+                return words[idx + 2].strip("'\"")
+        
+        return "unknown"
+    
+    def _fallback_analysis(self, project_path: Path) -> Dict[str, Any]:
+        """Fallback to basic analysis if vulture is not available."""
+        logger.info("Using fallback dead code analysis")
+        
+        return {
+            "dead_functions": [],
+            "dead_classes": [],
+            "dead_variables": [],
+            "unused_imports": [],
+            "total_dead": 0,
+            "confidence": "skipped",
+            "tool": "fallback",
+            "message": "Vulture not installed - install with: pip install vulture"
+        }
