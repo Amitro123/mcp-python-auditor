@@ -42,6 +42,49 @@ ProjectAuditAgent performs deep code analysis using AST parsing, detects duplica
 - ✅ Pydantic validation everywhere
 - ✅ Production-ready error handling
 
+## 🧠 How it Works
+
+```mermaid
+graph TD
+    User[👤 User / AI Agent] -->|1. Request Audit| API[📡 MCP Server API]
+    
+    subgraph "Orchestration Layer"
+        API --> Agent[🤖 Analyzer Agent]
+        Agent -->|2. Dispatch| Tools
+    end
+    
+    subgraph "Tool Execution Engine"
+        direction TB
+        Tools{🛠️ Analysis Tools}
+        
+        Tools -->|Static Analysis| AST[AST Parsers]
+        AST --> Structure & Architecture
+        AST --> Complexity & DeadCode
+        
+        Tools -->|Subprocess / External| Ext[External Runners]
+        Ext --> Security[Bandit / Safety]
+        Ext --> Secrets[Detect-Secrets]
+        
+        Tools -->|Environment Aware| Env[Smart Venv Detector]
+        Env -->|Find python.exe| Venv{Found Venv?}
+        Venv -->|Yes| PyTest[Run pytest-cov (Target Env)]
+        Venv -->|No| SysTest[Run pytest (System Env)]
+    end
+    
+    subgraph "Reporting"
+        Structure & Architecture & Complexity & DeadCode & Security & Secrets & PyTest --> Agg[📊 Result Aggregator]
+        Agg -->|3. Calculate Score| Score[💯 Scoring Algorithm]
+        Score -->|4. Generate Markdown| MD[📝 Final Report]
+    end
+    
+    MD -->|5. Return Context| User
+    
+    style User fill:#f9f,stroke:#333,stroke-width:2px
+    style Agent fill:#bbf,stroke:#333,stroke-width:2px
+    style Env fill:#bfb,stroke:#333,stroke-width:2px
+    style MD fill:#ff9,stroke:#333,stroke-width:2px
+```
+
 ## 📦 Installation
 
 ### **Option 1: Local Setup**
