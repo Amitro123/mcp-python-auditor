@@ -171,11 +171,12 @@ class TestsTool(BaseTool):
                 return 0, error_msg
             
             # Get coverage report
-            if result.returncode == 0 or result.returncode == 5:  # 5 = no tests collected
+            # Allow exit code 0 (Success), 1 (Tests Failed), 5 (No Tests Collected)
+            if result.returncode in [0, 1, 5]:
                 if venv_python:
-                    report_cmd = [str(venv_python), '-m', 'coverage', 'report', '--precision=0']
+                    report_cmd = [str(venv_python), '-m', 'coverage', 'report', '--precision=0', '--ignore-errors']
                 else:
-                    report_cmd = ['coverage', 'report', '--precision=0']
+                    report_cmd = ['coverage', 'report', '--precision=0', '--ignore-errors']
                 
                 report_result = subprocess.run(
                     report_cmd,
