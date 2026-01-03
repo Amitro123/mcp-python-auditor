@@ -73,7 +73,27 @@ docker build -t project-audit .
 docker run -p 8000:8000 -v ./projects:/projects:ro -v ./reports:/app/reports project-audit
 ```
 
+## 🔌 Connect to Claude & Cursor
+
+To use this tool with **Claude Desktop** or **Cursor**, please follow the detailed setup instructions in [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md).
+
+This guide contains:
+- Complete `claude_desktop_config.json` configuration
+- Cursor MCP setup steps
+- Troubleshooting tips
+
 ## 🎯 Quick Start
+
+### **✅ Prerequisites for Target Projects**
+
+To get **accurate test coverage scores**, ensure your target project has `pytest-cov` installed in its virtual environment:
+
+```bash
+# In your project's venv
+pip install pytest-cov
+```
+
+Without this, the auditor will fail to collect coverage data (timeout or exit code 1) and will fall back to basic analysis.
 
 ### **1. Start the Server**
 
@@ -401,7 +421,7 @@ curl -X POST http://localhost:8000/tools/secrets/enable
 
 ## 🚧 Roadmap
 
-- [ ] Security analysis (bandit integration)
+- [x] Security analysis (bandit integration)
 - [ ] Performance profiling
 - [ ] Documentation coverage
 - [ ] Dependency vulnerability scanning
