@@ -154,12 +154,12 @@ class TestsTool(BaseTool):
                 warning = "Warning: No virtual environment found. Coverage may be inaccurate."
                 cmd = ['coverage', 'run', '-m', 'pytest', '--tb=no', '-q']
             
-            # Try running coverage with shorter timeout
+            # Try running coverage with 2-minute timeout for heavy E2E tests
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,  # Reduced from 120s to 30s
+                timeout=120,  # Increased to 120s for heavy E2E tests (video processing, etc.)
                 cwd=project_path,
                 env=env
             )
@@ -181,7 +181,7 @@ class TestsTool(BaseTool):
                     report_cmd,
                     capture_output=True,
                     text=True,
-                    timeout=10,  # Reduced from 30s to 10s
+                    timeout=30,  # 30s for report generation
                     cwd=project_path,
                     env=env
                 )
@@ -198,8 +198,8 @@ class TestsTool(BaseTool):
                             return coverage_pct, warning
         
         except subprocess.TimeoutExpired:
-            logger.warning("Coverage analysis timed out (30s limit)")
-            return 0, "Warning: Coverage analysis timed out"
+            logger.warning("Coverage analysis timed out (120s limit)")
+            return 0, "Warning: Coverage analysis timed out (120s limit)"
         except FileNotFoundError:
             logger.debug("coverage or pytest not available")
             return 0, "Warning: coverage or pytest not available"
