@@ -134,13 +134,31 @@ class EfficiencyTool(BaseTool):
             if isinstance(node, ast.FunctionDef):
                 for child in ast.walk(node):
                     if isinstance(child, ast.Global):
-                        issues.append({
-                            "type": "global_variable",
-                            "file": file_path,
-                            "line": child.lineno,
-                            "description": f"Global variable usage in function '{node.name}' - consider passing as parameter",
-                            "severity": "warning"
-                        })
+                        # Filter out valid patterns
+                        for name in child.names:
+                            # Ignore if it's a constant (UPPERCASE)
+                            if name.isupper():
+                                continue
+                            
+                            # Ignore if it's private/internal (starts with _)
+                            if name.startswith('_'):
+                                continue
+                            
+                            # Ignore common singleton patterns
+                            if any(pattern in name.lower() for pattern in [
+                                'generator', 'service', 'client', 'session',
+                                'config', 'logger', 'cache', 'pool'
+                            ]):
+                                continue
+                            
+                            # If we get here, it's likely a problematic global
+                            issues.append({
+                                "type": "global_variable",
+                                "file": file_path,
+                                "line": child.lineno,
+                                "description": f"Global variable '{name}' in function '{node.name}' - consider passing as parameter",
+                                "severity": "warning"
+                            })
         
         return issues
     
