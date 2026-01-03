@@ -88,25 +88,35 @@ class TestsTool(BaseTool):
         return False
     
     def _detect_venv_python(self, project_path: Path) -> Optional[Path]:
-        """Detect virtual environment Python interpreter."""
+        """Detect virtual environment Python interpreter.
+        
+        Checks for venv in project directory and parent directory.
+        """
+        # Check both project directory and parent directory
+        search_paths = [
+            project_path,
+            project_path.parent
+        ]
+        
         venv_dirs = ['.venv', 'venv', 'env']
         
-        for venv_name in venv_dirs:
-            venv_path = project_path / venv_name
-            if not venv_path.exists():
-                continue
-            
-            # Check OS-specific Python executable location
-            if sys.platform == 'win32':
-                python_exe = venv_path / 'Scripts' / 'python.exe'
-            else:
-                python_exe = venv_path / 'bin' / 'python'
-            
-            if python_exe.exists():
-                logger.info(f"Found venv Python: {python_exe}")
-                return python_exe
+        for base_path in search_paths:
+            for venv_name in venv_dirs:
+                venv_path = base_path / venv_name
+                if not venv_path.exists():
+                    continue
+                
+                # Check OS-specific Python executable location
+                if sys.platform == 'win32':
+                    python_exe = venv_path / 'Scripts' / 'python.exe'
+                else:
+                    python_exe = venv_path / 'bin' / 'python'
+                
+                if python_exe.exists():
+                    logger.info(f"Found venv Python: {python_exe}")
+                    return python_exe
         
-        logger.debug("No virtual environment found")
+        logger.debug("No virtual environment found in project or parent directory")
         return None
     
     def _get_coverage(self, project_path: Path, venv_python: Optional[Path] = None) -> tuple[int, Optional[str]]:
@@ -137,31 +147,14 @@ class TestsTool(BaseTool):
                 # Use project's venv Python
                 python_cmd = str(venv_python)
                 logger.info(f"Using venv Python: {python_cmd}")
-                
-                # Verify pytest is available in venv
-                check_result = subprocess.run(
-                    [python_cmd, '-m', 'pytest', '--version'],
-                    capture_output=True,
-                    timeout=5,
-                    cwd=project_path
-                )
-                if check_result.returncode != 0:
-                    logger.warning("pytest not found in venv, falling back to system pytest")
-                    python_cmd = 'coverage'
-                    warning = "Warning: pytest not found in project venv"
-            else:
-                # Fall back to system coverage
-                python_cmd = 'coverage'
-                warning = "Warning: No virtual environment found. Coverage may be inaccurate."
-            
-            # Try running coverage with shorter timeout
-            if venv_python and python_cmd != 'coverage':
-                # Use venv Python with coverage module
                 cmd = [python_cmd, '-m', 'coverage', 'run', '-m', 'pytest', '--tb=no', '-q']
             else:
-                # Use system coverage command
+                # Fall back to system coverage
+                logger.warning("No virtual environment found. Coverage may be inaccurate.")
+                warning = "Warning: No virtual environment found. Coverage may be inaccurate."
                 cmd = ['coverage', 'run', '-m', 'pytest', '--tb=no', '-q']
             
+            # Try running coverage with shorter timeout
             result = subprocess.run(
                 cmd,
                 capture_output=True,
@@ -171,10 +164,16 @@ class TestsTool(BaseTool):
                 env=env
             )
             
+            # Check for common errors
+            if "No module named" in result.stderr:
+                error_msg = "Could not run coverage. Make sure 'pytest-cov' is installed in your project environment."
+                logger.warning(error_msg)
+                return 0, error_msg
+            
             # Get coverage report
             if result.returncode == 0 or result.returncode == 5:  # 5 = no tests collected
-                if venv_python and python_cmd != 'coverage':
-                    report_cmd = [python_cmd, '-m', 'coverage', 'report', '--precision=0']
+                if venv_python:
+                    report_cmd = [str(venv_python), '-m', 'coverage', 'report', '--precision=0']
                 else:
                     report_cmd = ['coverage', 'report', '--precision=0']
                 
@@ -194,14 +193,19 @@ class TestsTool(BaseTool):
                         # Extract percentage (last column)
                         match = re.search(r'(\d+)%', line)
                         if match:
-                            return int(match.group(1)), warning
+                            coverage_pct = int(match.group(1))
+                            logger.info(f"Coverage: {coverage_pct}%")
+                            return coverage_pct, warning
         
         except subprocess.TimeoutExpired:
             logger.warning("Coverage analysis timed out (30s limit)")
+            return 0, "Warning: Coverage analysis timed out"
         except FileNotFoundError:
             logger.debug("coverage or pytest not available")
+            return 0, "Warning: coverage or pytest not available"
         except Exception as e:
             logger.debug(f"Coverage analysis failed: {e}")
+            return 0, f"Warning: Coverage analysis failed - {str(e)}"
         
         return 0, "Warning: Coverage analysis failed"
 
