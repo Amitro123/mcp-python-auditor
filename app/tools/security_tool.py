@@ -5,6 +5,7 @@ from app.core.base_tool import BaseTool
 from app.core.subprocess_wrapper import SubprocessWrapper
 import logging
 import json
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -64,19 +65,32 @@ class SecurityTool(BaseTool):
     
     def _run_bandit(self, project_path: Path) -> Dict[str, Any]:
         """Run Bandit for code security analysis."""
-        success, stdout, stderr = SubprocessWrapper.run_command(
-            ['bandit', '-r', str(project_path), '-f', 'json', '--quiet'],
-            cwd=project_path,
-            timeout=120,
-            check_venv=False
-        )
-        
-        if not success:
-            if "not found" in stderr.lower():
-                logger.warning("Bandit not installed")
-                return {"issues": [], "skipped": True, "message": "Bandit not installed"}
-            logger.error(f"Bandit failed: {stderr}")
-            return {"issues": [], "error": stderr}
+        try:
+            result = subprocess.run(
+                ['bandit', '-r', str(project_path), '-f', 'json', '--quiet'],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                errors='replace'
+            )
+            
+            # Allow exit code 0 (clean) and 1 (issues found)
+            if result.returncode not in [0, 1]:
+                if "not found" in result.stderr.lower():
+                    logger.warning("Bandit not installed")
+                    return {"issues": [], "skipped": True, "message": "Bandit not installed"}
+                logger.error(f"Bandit failed with code {result.returncode}: {result.stderr}")
+                return {"issues": [], "error": result.stderr}
+            
+            stdout = result.stdout
+            
+        except subprocess.TimeoutExpired:
+            logger.error("Bandit timed out")
+            return {"issues": [], "error": "Bandit timed out"}
+        except FileNotFoundError:
+            logger.warning("Bandit command not found")
+            return {"issues": [], "skipped": True, "message": "Bandit not installed"}
         
         try:
             data = json.loads(stdout)
@@ -114,23 +128,39 @@ class SecurityTool(BaseTool):
                 "message": "No requirements.txt found"
             }
         
-        success, stdout, stderr = SubprocessWrapper.run_command(
-            ['pip-audit', '-r', str(requirements_file), '--format', 'json'],
-            cwd=project_path,
-            timeout=120,
-            check_venv=False
-        )
-        
-        if not success:
-            if "not found" in stderr.lower():
-                logger.warning("pip-audit not installed")
-                return {
-                    "vulnerabilities": [],
-                    "skipped": True,
-                    "message": "pip-audit not installed"
-                }
-            # pip-audit returns non-zero if vulnerabilities found
-            # Try to parse output anyway
+        try:
+            result = subprocess.run(
+                ['pip-audit', '-r', str(requirements_file), '--format', 'json'],
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                errors='replace'
+            )
+            
+            # Allow exit code 0 (clean) and 1 (issues found)
+            if result.returncode not in [0, 1]:
+                if "not found" in result.stderr.lower():
+                    logger.warning("pip-audit not installed")
+                    return {
+                        "vulnerabilities": [],
+                        "skipped": True,
+                        "message": "pip-audit not installed"
+                    }
+                logger.error(f"pip-audit failed with code {result.returncode}: {result.stderr}")
+                # Try to parse output anyway if it matches JSON
+            
+            stdout = result.stdout
+            
+        except subprocess.TimeoutExpired:
+            logger.error("pip-audit timed out")
+            return {"vulnerabilities": [], "error": "pip-audit timed out"}
+        except FileNotFoundError:
+            return {
+                "vulnerabilities": [],
+                "skipped": True,
+                "message": "pip-audit not installed"
+            }
         
         try:
             data = json.loads(stdout) if stdout else {"dependencies": []}

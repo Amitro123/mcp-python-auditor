@@ -5,6 +5,7 @@ from app.core.base_tool import BaseTool
 from app.core.subprocess_wrapper import SubprocessWrapper
 import logging
 import json
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -31,20 +32,37 @@ class DeadcodeTool(BaseTool):
         
         try:
             # Run vulture with JSON output
-            success, stdout, stderr = SubprocessWrapper.run_command(
-                ['vulture', str(project_path), '--min-confidence', '80'],
-                cwd=project_path,
-                timeout=120,
-                check_venv=False
-            )
-            
-            if not success:
-                if "not found" in stderr.lower():
-                    logger.warning("Vulture not installed, falling back to basic analysis")
-                    return self._fallback_analysis(project_path)
-                else:
-                    logger.error(f"Vulture failed: {stderr}")
-                    return {"error": f"Vulture execution failed: {stderr}"}
+            # Run vulture with JSON output using subprocess directly to handle exit codes
+            # Exit code 0: No dead code found
+            # Exit code 1: Dead code found (Valid success for us)
+            # Other codes: Error
+            try:
+                result = subprocess.run(
+                    ['vulture', str(project_path), '--min-confidence', '80'],
+                    cwd=project_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    errors='replace'
+                )
+                
+                # Check return code
+                if result.returncode not in [0, 1]:
+                    if "not found" in result.stderr.lower():
+                        logger.warning("Vulture not installed, falling back to basic analysis")
+                        return self._fallback_analysis(project_path)
+                    else:
+                        logger.error(f"Vulture failed with code {result.returncode}: {result.stderr}")
+                        return {"error": f"Vulture execution failed: {result.stderr}"}
+                
+                stdout = result.stdout
+                
+            except subprocess.TimeoutExpired:
+                 logger.error("Vulture timed out after 120s")
+                 return {"error": "Vulture timed out"}
+            except FileNotFoundError:
+                 logger.warning("Vulture command not found")
+                 return self._fallback_analysis(project_path)
             
             # Parse vulture output
             dead_items = self._parse_vulture_output(stdout)
