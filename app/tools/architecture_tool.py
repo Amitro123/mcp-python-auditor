@@ -78,10 +78,13 @@ class ArchitectureTool(BaseTool):
                 "category": "structure"
             })
         
-        # Check for requirements.txt or pyproject.toml (case-insensitive)
-        # Use glob to avoid case-sensitivity issues on Windows
-        has_requirements = any(f.name.lower() == 'requirements.txt' for f in path.glob('*'))
-        has_pyproject = any(f.name.lower() == 'pyproject.toml' for f in path.glob('*'))
+        # Check for requirements.txt or pyproject.toml
+        # Simple, unbreakable check - no glob needed
+        req_file = path / "requirements.txt"
+        toml_file = path / "pyproject.toml"
+        
+        has_requirements = req_file.exists()
+        has_pyproject = toml_file.exists()
         
         if not has_requirements and not has_pyproject:
             issues.append({

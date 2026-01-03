@@ -1,6 +1,7 @@
 """Cleanup detection tool - Find cache and temporary files."""
 from pathlib import Path
 from typing import Dict, Any, List
+import os
 from app.core.base_tool import BaseTool
 import logging
 
@@ -65,30 +66,37 @@ class CleanupTool(BaseTool):
             items = []
             total_size = 0
             
-            # Process cache directories (grouped)
-            for pattern in cache_patterns:
-                found_dirs = list(project_path.rglob(pattern))
-                if found_dirs:
-                    # Group all instances of this cache type
-                    total_files = 0
-                    pattern_size = 0
-                    
-                    for dir_path in found_dirs:
-                        if dir_path.is_dir():
-                            size_bytes = self._get_dir_size(dir_path)
-                            pattern_size += size_bytes
-                            # Count files in this directory
-                            total_files += sum(1 for _ in dir_path.rglob('*') if _.is_file())
-                    
-                    if total_files > 0:
-                        size_mb = pattern_size / (1024 * 1024)
-                        items.append({
-                            "path": f"{pattern} (Found {total_files} files, {size_mb:.1f}MB)",
-                            "type": "cache_group",
-                            "size_mb": size_mb,
-                            "recommendation": "Run pyclean . or remove manually"
-                        })
-                        total_size += size_mb
+            # Process cache directories (grouped) using os.walk to prevent recursion
+            cache_found = {pattern: {'files': 0, 'size': 0} for pattern in cache_patterns}
+            
+            for root, dirs, files in os.walk(project_path):
+                # Check if current directory matches any cache pattern
+                root_name = Path(root).name
+                
+                for pattern in cache_patterns:
+                    if pattern in dirs:
+                        # Found a cache directory - calculate its size
+                        cache_path = Path(root) / pattern
+                        size_bytes = self._get_dir_size(cache_path)
+                        file_count = sum(1 for _ in cache_path.rglob('*') if _.is_file())
+                        
+                        cache_found[pattern]['files'] += file_count
+                        cache_found[pattern]['size'] += size_bytes
+                        
+                        # CRITICAL: Remove from dirs to prevent recursion
+                        dirs.remove(pattern)
+            
+            # Add grouped cache summaries
+            for pattern, data in cache_found.items():
+                if data['files'] > 0:
+                    size_mb = data['size'] / (1024 * 1024)
+                    items.append({
+                        "path": f"{pattern} (Found {data['files']} files, {size_mb:.1f}MB)",
+                        "type": "cache_group",
+                        "size_mb": size_mb,
+                        "recommendation": "Run pyclean . or remove manually"
+                    })
+                    total_size += size_mb
             
             # Process individual patterns
             for pattern in individual_patterns:
