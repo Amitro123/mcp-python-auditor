@@ -46,35 +46,35 @@ ProjectAuditAgent performs deep code analysis using AST parsing, detects duplica
 
 ```mermaid
 graph TD
-    User[👤 User / AI Agent] -->|1. Request Audit| API[📡 MCP Server API]
+    User["👤 User / AI Agent"] -->|1. Request Audit| API["📡 MCP Server API"]
     
     subgraph "Orchestration Layer"
-        API --> Agent[🤖 Analyzer Agent]
+        API --> Agent["🤖 Analyzer Agent"]
         Agent -->|2. Dispatch| Tools
     end
     
     subgraph "Tool Execution Engine"
         direction TB
-        Tools{🛠️ Analysis Tools}
+        Tools{"🛠️ Analysis Tools"}
         
-        Tools -->|Static Analysis| AST[AST Parsers]
+        Tools -->|Static Analysis| AST["AST Parsers"]
         AST --> Structure & Architecture
         AST --> Complexity & DeadCode
         
-        Tools -->|Subprocess / External| Ext[External Runners]
-        Ext --> Security[Bandit / Safety]
-        Ext --> Secrets[Detect-Secrets]
+        Tools -->|Subprocess / External| Ext["External Runners"]
+        Ext --> Security["Bandit / Safety"]
+        Ext --> Secrets["Detect-Secrets"]
         
-        Tools -->|Environment Aware| Env[Smart Venv Detector]
-        Env -->|Find python.exe| Venv{Found Venv?}
-        Venv -->|Yes| PyTest[Run pytest-cov (Target Env)]
-        Venv -->|No| SysTest[Run pytest (System Env)]
+        Tools -->|Environment Aware| Env["Smart Venv Detector"]
+        Env -->|Find python.exe| Venv{"Found Venv?"}
+        Venv -->|Yes| PyTest["Run pytest-cov (Target Env)"]
+        Venv -->|No| SysTest["Run pytest (System Env)"]
     end
     
     subgraph "Reporting"
-        Structure & Architecture & Complexity & DeadCode & Security & Secrets & PyTest --> Agg[📊 Result Aggregator]
-        Agg -->|3. Calculate Score| Score[💯 Scoring Algorithm]
-        Score -->|4. Generate Markdown| MD[📝 Final Report]
+        Structure & Architecture & Complexity & DeadCode & Security & Secrets & PyTest --> Agg["📊 Result Aggregator"]
+        Agg -->|3. Calculate Score| Score["💯 Scoring Algorithm"]
+        Score -->|4. Generate Markdown| MD["📝 Final Report"]
     end
     
     MD -->|5. Return Context| User
