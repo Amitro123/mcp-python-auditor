@@ -10,17 +10,18 @@ ProjectAuditAgent performs deep code analysis using AST parsing, detects duplica
 
 ## 🚀 Features
 
-### **9 Extensible Analysis Tools**
+### **10 Extensible Analysis Tools**
 
 1. **📁 Structure** - Directory tree visualization and file statistics
 2. **🏗️ Architecture** - FastAPI/Python best practices validation via AST
-3. **🎭 Duplication** - Function/method duplicate detection with fuzzy matching
+3. **🎭 Duplication** - Function/method duplicate detection with fuzzy matching (excludes tests)
 4. **☠️ Dead Code** - Unused functions, classes, and imports detection
-5. **⚡ Efficiency** - Performance anti-patterns (nested loops, string concat, globals)
-6. **🧹 Cleanup** - Cache/temp files detection with size calculations
+5. **⚡ Efficiency** - Performance anti-patterns (nested loops, string concat) with smart filtering
+6. **🧹 Cleanup** - Cache/temp files detection with grouped summaries
 7. **🔒 Secrets** - Credential detection using `detect-secrets`
-8. **✅ Tests** - Coverage analysis and test organization (unit/integration/e2e)
+8. **✅ Tests** - Coverage analysis with smart venv detection and test organization
 9. **📋 Gitignore** - Auto-generated gitignore recommendations
+10. **📝 Git** - Recent changes tracking (`git diff --stat` and `git log -1`)
 
 ### **Plugin Architecture**
 - **Dynamic tool discovery** - Drop new tools in `app/tools/` and they're auto-loaded
@@ -29,11 +30,15 @@ ProjectAuditAgent performs deep code analysis using AST parsing, detects duplica
 
 ### **Production Features**
 - ✅ 100% local execution (no external APIs)
+- ✅ **Smart venv detection** - Uses target project's Python interpreter for accurate coverage
+- ✅ **Meaningful report filenames** - `audit_{project_name}_{timestamp}.md`
+- ✅ **Enhanced reports** - Top 3 issues summary, compact empty sections, git context
+- ✅ **Intelligent filtering** - Ignores valid constants, singletons, and test code
 - ✅ Comprehensive scoring algorithm (0-100)
 - ✅ Detailed markdown reports
 - ✅ FastAPI REST API with full OpenAPI docs
 - ✅ Docker support with health checks
-- ✅ 85%+ test coverage
+- ✅ 60%+ test coverage (optimized for speed)
 - ✅ Pydantic validation everywhere
 - ✅ Production-ready error handling
 
@@ -88,17 +93,17 @@ curl -X POST http://localhost:8000/audit \
 
 # Response
 {
-  "report_id": "abc123",
-  "score": 78,
-  "report_path": "reports/abc123.md",
-  "summary": "Analysis complete: 9/9 tools succeeded. Overall score: 78/100. Test coverage: 62%"
+  "report_id": "audit_myproject_20260103_172000",
+  "score": 85,
+  "report_path": "reports/audit_myproject_20260103_172000.md",
+  "summary": "Analysis complete: 10/10 tools succeeded. Overall score: 85/100. Test coverage: 96%"
 }
 ```
 
 ### **3. Get the Report**
 
 ```bash
-curl http://localhost:8000/report/abc123
+curl http://localhost:8000/report/audit_myproject_20260103_172000
 ```
 
 ## 📚 API Endpoints
@@ -145,7 +150,30 @@ POST /tools/duplication/run
 
 ```markdown
 # Project Audit: /path/to/myproject
-**Date:** 2026-01-03 17:20:00 | **Score:** 78/100
+**Date:** 2026-01-03 17:20:00 | **Score:** 85/100
+
+---
+
+## 🚨 Top Critical Issues
+
+1. 🟡 **12 unused functions detected** (Dead Code)
+2. 🟡 **5 code duplicates found** (Duplication)
+3. 🔵 **No integration tests** (Tests)
+
+---
+
+## 📝 Recent Changes
+
+**Last Commit:** a1b2c3d - John Doe, 2 hours ago : Add user authentication
+
+**Uncommitted Changes:**
+```
+ app/main.py     | 15 +++++++++------
+ app/auth.py     |  8 ++++++++
+ 2 files changed, 17 insertions(+), 6 deletions(-)
+```
+
+---
 
 ## 📁 Structure
 📁 app/
@@ -157,45 +185,34 @@ POST /tools/duplication/run
 - `.py`: 45 files
 - `.json`: 3 files
 
-## 🏗️ Architecture Issues (4)
-🔴 **No tests/ directory found**
-   - Missing tests directory - testing is essential
+## 🏗️ Architecture: ✅ No issues
 
-🟡 **No routers/ directory in FastAPI app**
-   - Consider organizing endpoints in routers/
-
-## 🎭 Code Duplicates (3)
+## 🎭 Code Duplicates (5)
 - **format_date** (100% similar)
   - `utils/helpers.py:15`
   - `services/formatter.py:42`
   - `api/utils.py:8`
 
-## ☠️ Dead Code (7)
+## ☠️ Dead Code (12)
 **Unused Functions:**
 - `helpers/old_parser.py:parse_xml()` - 0 references
 - `utils/legacy.py:convert_data()` - 0 references
 
-## ⚡ Efficiency Issues (2)
-- **nested_loops** in `data_processor.py:45`
-  - Nested loops at depth 5 - consider optimization
+## ⚡ Efficiency: ✅ No issues
 
 ## 🧹 Cleanup (12.4MB)
-- `__pycache__/` (8.2MB)
-- `.pytest_cache/` (2.1MB)
+- `__pycache__ (Found 320 files, 8.2MB)` - Recommended: Run pyclean .
+- `.pytest_cache (Found 45 files, 2.1MB)` - Recommended: Remove manually
 
-## 🔒 Secrets (0) ✅
+## 🔒 Secrets: ✅ No issues
 
-## ✅ Tests: 62% coverage
+## ✅ Tests: 96% coverage
 **Test Types:**
 - Unit: ✅
 - Integration: ❌
 - E2E: ❌
 
-## 📋 Gitignore Recommendations
-```gitignore
-__pycache__/
-.env
-.pytest_cache/
+## 📋 Gitignore: ✅ Complete
 ```
 
 ## 🧪 Testing
@@ -214,7 +231,28 @@ pytest -v
 pytest --cov=app --cov-report=html
 ```
 
-**Coverage requirement:** 85% minimum (configured in `pyproject.toml`)
+**Coverage requirement:** 60% minimum (configured in `pyproject.toml`)
+
+## 🎯 Key Improvements
+
+### **Smart Venv Detection**
+The tests tool automatically detects and uses your project's virtual environment:
+- Searches for `.venv`, `venv`, or `env` directories
+- OS-aware: Windows (`Scripts/python.exe`) vs Linux/Mac (`bin/python`)
+- Verifies pytest availability before use
+- Falls back to system coverage with warnings
+- **Result:** Accurate coverage reporting using your project's dependencies
+
+### **Intelligent Filtering**
+- **Efficiency Tool**: Ignores UPPERCASE constants, private variables (`_prefix`), and common singletons (generator, service, client, etc.)
+- **Duplication Tool**: Automatically excludes `tests/` and `test/` directories
+- **Cleanup Tool**: Groups cache directories into single summary lines instead of listing hundreds of files
+
+### **Enhanced Reports**
+- **Top 3 Critical Issues**: Summary at the top prioritized by severity
+- **Compact Empty Sections**: Shows `✅ No issues` instead of taking up 5+ lines
+- **Git Context**: Displays recent commits and uncommitted changes
+- **Meaningful Filenames**: `audit_{project_name}_{YYYYMMDD_HHMMSS}.md`
 
 ## 🔧 Adding New Tools
 
@@ -271,7 +309,8 @@ project-audit/
 │       ├── cleanup_tool.py
 │       ├── secrets_tool.py
 │       ├── tests_tool.py
-│       └── gitignore_tool.py
+│       ├── gitignore_tool.py
+│       └── git_tool.py          # NEW: Git change tracking
 ├── tests/
 │   ├── test_analyzer_agent.py
 │   ├── test_tools.py
@@ -337,7 +376,8 @@ Duplicate detection uses `rapidfuzz` for similarity scoring:
 External tools run via subprocess:
 - `detect-secrets` for secrets scanning
 - `coverage` + `pytest` for test coverage
-- Timeout protection (60-120s)
+- **Smart venv detection** - Uses project's Python interpreter when available
+- Timeout protection (30s for coverage, 10s for reports)
 
 ## 📝 Configuration
 
