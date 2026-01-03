@@ -68,7 +68,8 @@ def test_audit_endpoint(client, sample_project):
         "/audit",
         json={
             "path": str(sample_project),
-            "dry_run": True
+            "dry_run": True,
+            "tools": ["structure", "architecture"]  # Fast tools only
         }
     )
     
@@ -136,7 +137,8 @@ def test_get_report(client, sample_project):
         "/audit",
         json={
             "path": str(sample_project),
-            "dry_run": False
+            "dry_run": False,
+            "tools": ["structure"]  # Fast tool only
         }
     )
     

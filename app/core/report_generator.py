@@ -55,6 +55,13 @@ class ReportGenerator:
             f.write(f"**Score:** {score}/100\n\n")
             f.write("---\n\n")
             
+            # Top 3 Critical Issues Summary
+            self._write_top_issues_summary(f, tool_results)
+            
+            # Git context (if available)
+            if 'git' in tool_results:
+                self._write_git_section(f, tool_results['git'])
+            
             # Structure section
             if 'structure' in tool_results:
                 self._write_structure_section(f, tool_results['structure'])
@@ -112,6 +119,93 @@ class ReportGenerator:
         logger.info(f"Report generated: {report_path}")
         return str(report_path)
     
+    def _write_top_issues_summary(self, f, tool_results: Dict[str, Any]) -> None:
+        """Write top 3 critical issues summary."""
+        issues = []
+        
+        # Collect all issues with severity
+        if 'architecture' in tool_results:
+            for issue in tool_results['architecture'].get('issues', []):
+                issues.append({
+                    'severity': issue.get('severity', 'info'),
+                    'title': issue.get('title', 'Issue'),
+                    'file': issue.get('file', ''),
+                    'category': 'Architecture'
+                })
+        
+        if 'secrets' in tool_results:
+            secrets = tool_results['secrets'].get('secrets', [])
+            if secrets:
+                issues.append({
+                    'severity': 'error',
+                    'title': f"{len(secrets)} potential secrets detected",
+                    'file': secrets[0].get('file', '') if secrets else '',
+                    'category': 'Security'
+                })
+        
+        if 'deadcode' in tool_results:
+            dead_count = len(tool_results['deadcode'].get('dead_functions', []))
+            if dead_count > 5:
+                issues.append({
+                    'severity': 'warning',
+                    'title': f"{dead_count} unused functions detected",
+                    'file': '',
+                    'category': 'Dead Code'
+                })
+        
+        if 'duplication' in tool_results:
+            dup_count = tool_results['duplication'].get('total_duplicates', 0)
+            if dup_count > 3:
+                issues.append({
+                    'severity': 'warning',
+                    'title': f"{dup_count} code duplicates found",
+                    'file': '',
+                    'category': 'Duplication'
+                })
+        
+        if 'efficiency' in tool_results:
+            eff_issues = tool_results['efficiency'].get('issues', [])
+            if eff_issues:
+                issues.append({
+                    'severity': 'warning',
+                    'title': f"{len(eff_issues)} efficiency issues",
+                    'file': eff_issues[0].get('file', '') if eff_issues else '',
+                    'category': 'Efficiency'
+                })
+        
+        # Sort by severity (error > warning > info)
+        severity_order = {'error': 0, 'warning': 1, 'info': 2}
+        issues.sort(key=lambda x: severity_order.get(x['severity'], 3))
+        
+        # Write top 3
+        if issues:
+            f.write("## 🚨 Top Critical Issues\n\n")
+            for i, issue in enumerate(issues[:3], 1):
+                icon = "🔴" if issue['severity'] == "error" else "🟡" if issue['severity'] == "warning" else "🔵"
+                f.write(f"{i}. {icon} **{issue['title']}** ({issue['category']})\n")
+                if issue['file']:
+                    f.write(f"   - File: `{issue['file']}`\n")
+            f.write("\n---\n\n")
+    
+    def _write_git_section(self, f, data: Dict[str, Any]) -> None:
+        """Write git context section."""
+        if not data.get('has_git', False):
+            return
+        
+        f.write("## 📝 Recent Changes\n\n")
+        
+        if data.get('last_commit'):
+            f.write(f"**Last Commit:** {data['last_commit']}\n\n")
+        
+        if data.get('diff_stat'):
+            f.write("**Uncommitted Changes:**\n```\n")
+            f.write(data['diff_stat'])
+            f.write("\n```\n\n")
+        else:
+            f.write("✅ No uncommitted changes\n\n")
+        
+        f.write("---\n\n")
+    
     def _write_structure_section(self, f, data: Dict[str, Any]) -> None:
         """Write structure analysis section."""
         f.write("## 📁 Structure\n\n")
@@ -129,36 +223,41 @@ class ReportGenerator:
     def _write_architecture_section(self, f, data: Dict[str, Any]) -> None:
         """Write architecture analysis section."""
         issues = data.get('issues', [])
-        f.write(f"## 🏗️ Architecture Issues ({len(issues)})\n\n")
         
         if not issues:
-            f.write("✅ No architecture issues detected\n\n")
-        else:
-            for issue in issues:
-                severity = issue.get('severity', 'info')
-                icon = "🔴" if severity == "error" else "🟡" if severity == "warning" else "🔵"
-                f.write(f"{icon} **{issue.get('title', 'Issue')}**\n")
-                f.write(f"   - {issue.get('description', '')}\n")
-                if 'file' in issue:
-                    f.write(f"   - File: `{issue['file']}`\n")
-                f.write("\n")
+            # Compact display for no issues
+            f.write("## 🏗️ Architecture: ✅ No issues\n\n")
+            return
+        
+        f.write(f"## 🏗️ Architecture Issues ({len(issues)})\n\n")
+        
+        for issue in issues:
+            severity = issue.get('severity', 'info')
+            icon = "🔴" if severity == "error" else "🟡" if severity == "warning" else "🔵"
+            f.write(f"{icon} **{issue.get('title', 'Issue')}**\n")
+            f.write(f"   - {issue.get('description', '')}\n")
+            if 'file' in issue:
+                f.write(f"   - File: `{issue['file']}`\n")
+            f.write("\n")
     
     def _write_duplication_section(self, f, data: Dict[str, Any]) -> None:
         """Write code duplication section."""
         duplicates = data.get('duplicates', [])
-        f.write(f"## 🎭 Code Duplicates ({len(duplicates)})\n\n")
         
         if not duplicates:
-            f.write("✅ No significant code duplication detected\n\n")
-        else:
-            for dup in duplicates:
-                similarity = dup.get('similarity', 0)
-                f.write(f"- **{dup.get('function_name', 'Unknown')}** ")
-                f.write(f"({similarity:.0f}% similar)\n")
-                locations = dup.get('locations', [])
-                for loc in locations:
-                    f.write(f"  - `{loc}`\n")
-                f.write("\n")
+            f.write("## 🎭 Code Duplicates: ✅ No issues\n\n")
+            return
+        
+        f.write(f"## 🎭 Code Duplicates ({len(duplicates)})\n\n")
+        
+        for dup in duplicates:
+            similarity = dup.get('similarity', 0)
+            f.write(f"- **{dup.get('function_name', 'Unknown')}** ")
+            f.write(f"({similarity:.0f}% similar)\n")
+            locations = dup.get('locations', [])
+            for loc in locations:
+                f.write(f"  - `{loc}`\n")
+            f.write("\n")
     
     def _write_deadcode_section(self, f, data: Dict[str, Any]) -> None:
         """Write dead code section."""
@@ -166,6 +265,11 @@ class ReportGenerator:
         unused_imports = data.get('unused_imports', [])
         
         total = len(dead_functions) + len(unused_imports)
+        
+        if total == 0:
+            f.write("## ☠️ Dead Code: ✅ No issues\n\n")
+            return
+        
         f.write(f"## ☠️ Dead Code ({total})\n\n")
         
         if dead_functions:
@@ -184,22 +288,21 @@ class ReportGenerator:
             if len(unused_imports) > 10:
                 f.write(f"\n*...and {len(unused_imports) - 10} more*\n")
             f.write("\n")
-        
-        if not dead_functions and not unused_imports:
-            f.write("✅ No dead code detected\n\n")
     
     def _write_efficiency_section(self, f, data: Dict[str, Any]) -> None:
         """Write efficiency issues section."""
         issues = data.get('issues', [])
-        f.write(f"## ⚡ Efficiency Issues ({len(issues)})\n\n")
         
         if not issues:
-            f.write("✅ No efficiency issues detected\n\n")
-        else:
-            for issue in issues:
-                f.write(f"- **{issue.get('type', 'Issue')}** in `{issue.get('file', '')}:{issue.get('line', '')}`\n")
-                f.write(f"  - {issue.get('description', '')}\n")
-                f.write("\n")
+            f.write("## ⚡ Efficiency: ✅ No issues\n\n")
+            return
+        
+        f.write(f"## ⚡ Efficiency Issues ({len(issues)})\n\n")
+        
+        for issue in issues:
+            f.write(f"- **{issue.get('type', 'Issue')}** in `{issue.get('file', '')}:{issue.get('line', '')}`\n")
+            f.write(f"  - {issue.get('description', '')}\n")
+            f.write("\n")
     
     def _write_cleanup_section(self, f, data: Dict[str, Any]) -> None:
         """Write cleanup recommendations section."""
@@ -218,16 +321,17 @@ class ReportGenerator:
     def _write_secrets_section(self, f, data: Dict[str, Any]) -> None:
         """Write secrets detection section."""
         secrets = data.get('secrets', [])
-        f.write(f"## 🔒 Secrets ({len(secrets)})\n\n")
         
         if not secrets:
-            f.write("✅ No secrets detected\n\n")
-        else:
-            f.write("⚠️ **Potential secrets found:**\n")
-            for secret in secrets:
-                f.write(f"- `{secret.get('file', '')}:{secret.get('line', '')}` - ")
-                f.write(f"{secret.get('type', 'Unknown')}\n")
-            f.write("\n")
+            f.write("## 🔒 Secrets: ✅ No issues\n\n")
+            return
+        
+        f.write(f"## 🔒 Secrets ({len(secrets)})\n\n")
+        f.write("⚠️ **Potential secrets found:**\n")
+        for secret in secrets:
+            f.write(f"- `{secret.get('file', '')}:{secret.get('line', '')}` - ")
+            f.write(f"{secret.get('type', 'Unknown')}\n")
+        f.write("\n")
     
     def _write_tests_section(self, f, data: Dict[str, Any]) -> None:
         """Write tests analysis section."""
@@ -248,11 +352,13 @@ class ReportGenerator:
     
     def _write_gitignore_section(self, f, data: Dict[str, Any]) -> None:
         """Write gitignore recommendations section."""
-        f.write("## 📋 Gitignore Recommendations\n\n")
+        suggestions = data.get('suggestions', [])
         
-        if 'suggestions' in data and data['suggestions']:
-            f.write("```gitignore\n")
-            f.write("\n".join(data['suggestions']))
-            f.write("\n```\n\n")
-        else:
-            f.write("✅ Gitignore appears complete\n\n")
+        if not suggestions:
+            f.write("## 📋 Gitignore: ✅ Complete\n\n")
+            return
+        
+        f.write("## 📋 Gitignore Recommendations\n\n")
+        f.write("```gitignore\n")
+        f.write("\n".join(suggestions))
+        f.write("\n```\n\n")

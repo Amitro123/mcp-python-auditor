@@ -52,7 +52,8 @@ class DuplicationTool(BaseTool):
         functions = []
         
         for py_file in path.rglob("*.py"):
-            if any(p in py_file.parts for p in ['__pycache__', '.venv', 'venv']):
+            # Exclude cache directories and test directories
+            if any(p in py_file.parts for p in ['__pycache__', '.venv', 'venv', 'tests', 'test']):
                 continue
             
             try:

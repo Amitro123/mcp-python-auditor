@@ -1,6 +1,6 @@
 """Main analyzer agent - Orchestrates all analysis tools."""
 import time
-import uuid
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -39,8 +39,14 @@ class AnalyzerAgent:
             AuditResult with analysis results
         """
         start_time = time.time()
-        report_id = str(uuid.uuid4())[:8]
         path = Path(project_path)
+        
+        # Generate meaningful report ID from project name and timestamp
+        project_name = path.name
+        # Sanitize: replace spaces and special chars with underscores
+        sanitized_name = re.sub(r'[^\w\-]', '_', project_name)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        report_id = f"audit_{sanitized_name}_{timestamp}"
         
         logger.info(f"Starting analysis of {project_path} (report_id: {report_id})")
         

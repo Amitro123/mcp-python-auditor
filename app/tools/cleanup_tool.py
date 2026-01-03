@@ -28,20 +28,25 @@ class CleanupTool(BaseTool):
             return {"error": "Invalid path"}
         
         try:
-            cleanup_patterns = [
+            # Patterns that should be grouped (cache directories)
+            cache_patterns = [
                 '__pycache__',
                 '.pytest_cache',
                 '.mypy_cache',
                 '.ruff_cache',
+                '.coverage',
+                'htmlcov',
+                '.tox',
+                '.nox'
+            ]
+            
+            # Patterns that should be listed individually
+            individual_patterns = [
                 'node_modules',
                 '.next',
                 'dist',
                 'build',
                 '*.egg-info',
-                '.coverage',
-                'htmlcov',
-                '.tox',
-                '.nox',
                 'venv',
                 '.venv',
                 'env',
@@ -60,18 +65,45 @@ class CleanupTool(BaseTool):
             items = []
             total_size = 0
             
-            for pattern in cleanup_patterns:
+            # Process cache directories (grouped)
+            for pattern in cache_patterns:
+                found_dirs = list(project_path.rglob(pattern))
+                if found_dirs:
+                    # Group all instances of this cache type
+                    total_files = 0
+                    pattern_size = 0
+                    
+                    for dir_path in found_dirs:
+                        if dir_path.is_dir():
+                            size_bytes = self._get_dir_size(dir_path)
+                            pattern_size += size_bytes
+                            # Count files in this directory
+                            total_files += sum(1 for _ in dir_path.rglob('*') if _.is_file())
+                    
+                    if total_files > 0:
+                        size_mb = pattern_size / (1024 * 1024)
+                        items.append({
+                            "path": f"{pattern} (Found {total_files} files, {size_mb:.1f}MB)",
+                            "type": "cache_group",
+                            "size_mb": size_mb,
+                            "recommendation": "Run pyclean . or remove manually"
+                        })
+                        total_size += size_mb
+            
+            # Process individual patterns
+            for pattern in individual_patterns:
                 if pattern.startswith('*.'):
                     # File pattern
                     ext = pattern[1:]
                     for file in project_path.rglob(f'*{ext}'):
-                        size_mb = file.stat().st_size / (1024 * 1024)
-                        items.append({
-                            "path": str(file.relative_to(project_path)),
-                            "type": "file",
-                            "size_mb": size_mb
-                        })
-                        total_size += size_mb
+                        if file.is_file():
+                            size_mb = file.stat().st_size / (1024 * 1024)
+                            items.append({
+                                "path": str(file.relative_to(project_path)),
+                                "type": "file",
+                                "size_mb": size_mb
+                            })
+                            total_size += size_mb
                 else:
                     # Directory pattern
                     for dir_path in project_path.rglob(pattern):
