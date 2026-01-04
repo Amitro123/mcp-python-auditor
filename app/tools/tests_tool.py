@@ -147,12 +147,12 @@ class TestsTool(BaseTool):
                 # Use project's venv Python
                 python_cmd = str(venv_python)
                 logger.info(f"Using venv Python: {python_cmd}")
-                cmd = [python_cmd, '-m', 'coverage', 'run', '-m', 'pytest', '--tb=no', '-q']
+                cmd = [python_cmd, '-m', 'coverage', 'run', '-m', 'pytest', '--tb=no', '-q', '--color=no']
             else:
                 # Fall back to system coverage
                 logger.warning("No virtual environment found. Coverage may be inaccurate.")
                 warning = "Warning: No virtual environment found. Coverage may be inaccurate."
-                cmd = ['coverage', 'run', '-m', 'pytest', '--tb=no', '-q']
+                cmd = ['coverage', 'run', '-m', 'pytest', '--tb=no', '-q', '--color=no']
             
             # Try running coverage with 3-minute timeout for heavy E2E tests
             result = subprocess.run(

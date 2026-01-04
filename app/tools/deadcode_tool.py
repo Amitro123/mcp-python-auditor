@@ -48,7 +48,10 @@ class DeadcodeTool(BaseTool):
                 )
                 
                 # Check return code
-                if result.returncode not in [0, 1]:
+                # Exit code 0: No dead code
+                # Exit code 1: Dead code found
+                # Exit code 3: Syntax error in one file (still produces results)
+                if result.returncode not in [0, 1, 3]:
                     if "not found" in result.stderr.lower():
                         logger.warning("Vulture not installed, falling back to basic analysis")
                         return self._fallback_analysis(project_path)

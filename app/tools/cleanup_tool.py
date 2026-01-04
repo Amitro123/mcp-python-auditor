@@ -84,7 +84,8 @@ class CleanupTool(BaseTool):
                         cache_found[pattern]['size'] += size_bytes
                         
                         # CRITICAL: Remove from dirs to prevent recursion
-                        dirs.remove(pattern)
+                        # Use slice assignment to modify in-place (required for os.walk)
+                        dirs[:] = [d for d in dirs if d != pattern]
             
             # Add grouped cache summaries
             for pattern, data in cache_found.items():
