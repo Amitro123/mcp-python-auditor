@@ -5,6 +5,7 @@ from app.core.base_tool import BaseTool
 from app.core.subprocess_wrapper import SubprocessWrapper
 import logging
 import json
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class ComplexityTool(BaseTool):
     def _get_cyclomatic_complexity(self, project_path: Path) -> List[Dict[str, Any]]:
         """Get cyclomatic complexity metrics."""
         success, stdout, stderr = SubprocessWrapper.run_command(
-            ['radon', 'cc', str(project_path), '-j', '-a'],
+            [sys.executable, '-m', 'radon', 'cc', str(project_path), '-j', '-a'],
             cwd=project_path,
             timeout=60,
             check_venv=False
@@ -113,7 +114,7 @@ class ComplexityTool(BaseTool):
     def _get_maintainability_index(self, project_path: Path) -> List[Dict[str, Any]]:
         """Get maintainability index metrics."""
         success, stdout, stderr = SubprocessWrapper.run_command(
-            ['radon', 'mi', str(project_path), '-j'],
+            [sys.executable, '-m', 'radon', 'mi', str(project_path), '-j'],
             cwd=project_path,
             timeout=60,
             check_venv=False

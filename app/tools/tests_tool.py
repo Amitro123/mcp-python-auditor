@@ -166,9 +166,15 @@ class TestsTool(BaseTool):
             
             # Check for common errors
             if "No module named" in result.stderr:
-                error_msg = "Could not run coverage. Make sure 'pytest-cov' is installed in your project environment."
-                logger.warning(error_msg)
-                return 0, error_msg
+                # Check specifically for pytest-cov missing
+                if "pytest_cov" in result.stderr or "coverage" in result.stderr:
+                    error_msg = "⚠️ MISSING PREREQUISITE: 'pytest-cov' is not installed in the target project. Coverage cannot be calculated."
+                    logger.warning(error_msg)
+                    return 0, error_msg
+                else:
+                    error_msg = "Could not run coverage. Make sure 'pytest-cov' is installed in your project environment."
+                    logger.warning(error_msg)
+                    return 0, error_msg
             
             # Get coverage report
             # Allow exit code 0 (Success), 1 (Tests Failed), 5 (No Tests Collected)

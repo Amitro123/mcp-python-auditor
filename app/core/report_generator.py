@@ -53,6 +53,10 @@ class ReportGenerator:
             f.write(f"# Project Audit: {project_path}\n\n")
             f.write(f"**Date:** {timestamp.strftime('%Y-%m-%d %H:%M:%S')} | ")
             f.write(f"**Score:** {score}/100\n\n")
+            
+            # Check for and display warnings prominently
+            self._write_warnings_section(f, tool_results)
+            
             f.write("---\n\n")
             
             # Top 3 Critical Issues Summary
@@ -118,6 +122,26 @@ class ReportGenerator:
         
         logger.info(f"Report generated: {report_path}")
         return str(report_path)
+    
+    def _write_warnings_section(self, f, tool_results: Dict[str, Any]) -> None:
+        """Write prominent warnings for missing dependencies or prerequisites."""
+        warnings = []
+        
+        # Check tests tool for pytest-cov warning
+        if 'tests' in tool_results:
+            tests_data = tool_results['tests']
+            if 'warning' in tests_data:
+                warning_msg = tests_data['warning']
+                # Check for the specific missing prerequisite message
+                if '⚠️ MISSING PREREQUISITE' in warning_msg:
+                    warnings.append(warning_msg)
+        
+        # Display warnings prominently if any exist
+        if warnings:
+            f.write("\n> [!WARNING]\n")
+            for warning in warnings:
+                f.write(f"> {warning}\n")
+            f.write("\n")
     
     def _write_top_issues_summary(self, f, tool_results: Dict[str, Any]) -> None:
         """Write top 3 critical issues summary."""

@@ -6,6 +6,7 @@ from app.core.subprocess_wrapper import SubprocessWrapper
 import logging
 import json
 import subprocess
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class DeadcodeTool(BaseTool):
             # Other codes: Error
             try:
                 result = subprocess.run(
-                    ['vulture', str(project_path), '--min-confidence', '80'],
+                    [sys.executable, '-m', 'vulture', str(project_path), '--min-confidence', '80'],
                     cwd=project_path,
                     capture_output=True,
                     text=True,

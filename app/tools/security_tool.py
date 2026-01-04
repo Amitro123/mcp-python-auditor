@@ -6,6 +6,7 @@ from app.core.subprocess_wrapper import SubprocessWrapper
 import logging
 import json
 import subprocess
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ class SecurityTool(BaseTool):
         """Run Bandit for code security analysis."""
         try:
             result = subprocess.run(
-                ['bandit', '-r', str(project_path), '-f', 'json', '--quiet'],
+                [sys.executable, '-m', 'bandit', '-r', str(project_path), '-f', 'json', '--quiet'],
                 cwd=project_path,
                 capture_output=True,
                 text=True,

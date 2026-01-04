@@ -1,5 +1,6 @@
 """FastAPI MCP server for ProjectAuditAgent."""
 import logging
+import importlib.util
 from pathlib import Path
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -25,6 +26,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def check_server_dependencies() -> None:
+    """Check if critical analysis dependencies are installed."""
+    required_deps = ['radon', 'vulture', 'bandit']
+    missing = []
+    
+    for dep in required_deps:
+        spec = importlib.util.find_spec(dep)
+        if spec is None:
+            missing.append(dep)
+    
+    if missing:
+        missing_str = ' '.join(missing)
+        logger.critical(
+            f"⚠️  MISSING DEPENDENCIES: {missing_str}\n"
+            f"Please run: pip install {missing_str}"
+        )
+        logger.critical("Some analysis tools may not function correctly!")
+    else:
+        logger.info("✓ All critical dependencies are installed")
+
 # Initialize paths
 BASE_DIR = Path(__file__).parent.parent
 REPORTS_DIR = BASE_DIR / "reports"
@@ -34,8 +56,11 @@ TOOLS_DIR = BASE_DIR / "app" / "tools"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown."""
-    # Startup: Discover and load tools
+    # Startup: Check dependencies first
     logger.info("Starting ProjectAuditAgent MCP Server")
+    check_server_dependencies()
+    
+    # Discover and load tools
     logger.info(f"Discovering tools from: {TOOLS_DIR}")
     
     registry.discover_tools(TOOLS_DIR)
