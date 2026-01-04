@@ -46,9 +46,26 @@ class SecretsTool(BaseTool):
         secrets = []
         
         try:
-            # Run detect-secrets scan
+            # Run detect-secrets scan with strict exclusions
+            # Exclude node_modules, build artifacts, and other non-source files
+            exclude_patterns = [
+                'node_modules/.*',
+                'dist/.*',
+                'build/.*',
+                '__pycache__/.*',
+                '.*\\.min\\.js',
+                'package-lock\\.json',
+                '\\.venv/.*',
+                'venv/.*'
+            ]
+            
+            cmd = ['detect-secrets', 'scan', '--all-files']
+            for pattern in exclude_patterns:
+                cmd.extend(['--exclude-files', pattern])
+            cmd.append(str(project_path))
+            
             result = subprocess.run(
-                ['detect-secrets', 'scan', '--all-files', str(project_path)],
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,

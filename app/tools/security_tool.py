@@ -67,8 +67,8 @@ class SecurityTool(BaseTool):
     def _run_bandit(self, project_path: Path) -> Dict[str, Any]:
         """Run Bandit for code security analysis."""
         try:
-            # Optimization: Exclude tests, venv, and cache
-            excludes = "tests,test,.venv,venv,__pycache__,build,dist"
+            # Optimization: Exclude tests, venv, node_modules, and cache
+            excludes = "tests,test,.venv,venv,__pycache__,build,dist,node_modules"
             result = subprocess.run(
                 [sys.executable, '-m', 'bandit', '-r', str(project_path), '-f', 'json', '--exclude', excludes, '-ll', '--quiet'],
                 cwd=project_path,
@@ -191,8 +191,25 @@ class SecurityTool(BaseTool):
     
     def _run_detect_secrets(self, project_path: Path) -> Dict[str, Any]:
         """Run detect-secrets for credential detection."""
+        # Exclude node_modules, build artifacts, and other non-source files
+        exclude_patterns = [
+            'node_modules/.*',
+            'dist/.*',
+            'build/.*',
+            '__pycache__/.*',
+            '.*\.min\.js',
+            'package-lock\.json',
+            '\.venv/.*',
+            'venv/.*'
+        ]
+        
+        cmd = ['detect-secrets', 'scan', '--all-files']
+        for pattern in exclude_patterns:
+            cmd.extend(['--exclude-files', pattern])
+        cmd.append(str(project_path))
+        
         success, stdout, stderr = SubprocessWrapper.run_command(
-            ['detect-secrets', 'scan', '--all-files', str(project_path)],
+            cmd,
             cwd=project_path,
             timeout=300,
             check_venv=False
