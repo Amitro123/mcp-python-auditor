@@ -14,7 +14,7 @@ class SubprocessWrapper:
     def run_command(
         command: List[str],
         cwd: Path,
-        timeout: int = 60,
+        timeout: int = 300,
         check_venv: bool = True
     ) -> Tuple[bool, str, str]:
         """
@@ -94,7 +94,7 @@ class SubprocessWrapper:
         module: str,
         args: List[str],
         cwd: Path,
-        timeout: int = 60
+        timeout: int = 300
     ) -> Tuple[bool, str, str]:
         """
         Run a Python module with error handling.

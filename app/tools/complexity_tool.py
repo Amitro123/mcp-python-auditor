@@ -76,10 +76,12 @@ class ComplexityTool(BaseTool):
     
     def _get_cyclomatic_complexity(self, project_path: Path) -> List[Dict[str, Any]]:
         """Get cyclomatic complexity metrics."""
+        # Optimization: Ignore non-code directories
+        ignore_patterns = "tests,test,.venv,venv,__pycache__,build,dist"
         success, stdout, stderr = SubprocessWrapper.run_command(
-            [sys.executable, '-m', 'radon', 'cc', str(project_path), '-j', '-a'],
+            [sys.executable, '-m', 'radon', 'cc', str(project_path), '-j', '-a', '-i', ignore_patterns],
             cwd=project_path,
-            timeout=60,
+            timeout=300,
             check_venv=False
         )
         
@@ -113,10 +115,12 @@ class ComplexityTool(BaseTool):
     
     def _get_maintainability_index(self, project_path: Path) -> List[Dict[str, Any]]:
         """Get maintainability index metrics."""
+        # Optimization: Ignore non-code directories
+        ignore_patterns = "tests,test,.venv,venv,__pycache__,build,dist"
         success, stdout, stderr = SubprocessWrapper.run_command(
-            [sys.executable, '-m', 'radon', 'mi', str(project_path), '-j'],
+            [sys.executable, '-m', 'radon', 'mi', str(project_path), '-j', '-i', ignore_patterns],
             cwd=project_path,
-            timeout=60,
+            timeout=300,
             check_venv=False
         )
         

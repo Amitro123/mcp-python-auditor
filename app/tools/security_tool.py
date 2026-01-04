@@ -67,12 +67,14 @@ class SecurityTool(BaseTool):
     def _run_bandit(self, project_path: Path) -> Dict[str, Any]:
         """Run Bandit for code security analysis."""
         try:
+            # Optimization: Exclude tests, venv, and cache
+            excludes = "tests,test,.venv,venv,__pycache__,build,dist"
             result = subprocess.run(
-                [sys.executable, '-m', 'bandit', '-r', str(project_path), '-f', 'json', '--quiet'],
+                [sys.executable, '-m', 'bandit', '-r', str(project_path), '-f', 'json', '--exclude', excludes, '-ll', '--quiet'],
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
                 errors='replace'
             )
             
@@ -135,7 +137,7 @@ class SecurityTool(BaseTool):
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
                 errors='replace'
             )
             
@@ -192,7 +194,7 @@ class SecurityTool(BaseTool):
         success, stdout, stderr = SubprocessWrapper.run_command(
             ['detect-secrets', 'scan', '--all-files', str(project_path)],
             cwd=project_path,
-            timeout=60,
+            timeout=300,
             check_venv=False
         )
         
