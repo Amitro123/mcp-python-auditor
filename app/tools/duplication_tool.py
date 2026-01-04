@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Tuple
 from collections import defaultdict
 from rapidfuzz import fuzz
 from app.core.base_tool import BaseTool
+from app.core.config import ANALYSIS_EXCLUDES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,8 @@ class DuplicationTool(BaseTool):
         functions = []
         
         for py_file in path.rglob("*.py"):
-            # Exclude cache directories and test directories
-            if any(p in py_file.parts for p in ['__pycache__', '.venv', 'venv', 'tests', 'test']):
+            # Use centralized exclusion config
+            if any(p in py_file.parts for p in ANALYSIS_EXCLUDES):
                 continue
             
             try:

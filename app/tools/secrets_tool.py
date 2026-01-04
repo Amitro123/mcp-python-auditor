@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 import subprocess
 import json
 from app.core.base_tool import BaseTool
+from app.core.config import get_analysis_excludes_regex
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,18 +47,8 @@ class SecretsTool(BaseTool):
         secrets = []
         
         try:
-            # Run detect-secrets scan with strict exclusions
-            # Exclude node_modules, build artifacts, and other non-source files
-            exclude_patterns = [
-                'node_modules/.*',
-                'dist/.*',
-                'build/.*',
-                '__pycache__/.*',
-                '.*\\.min\\.js',
-                'package-lock\\.json',
-                '\\.venv/.*',
-                'venv/.*'
-            ]
+            # Use centralized exclusion config
+            exclude_patterns = get_analysis_excludes_regex()
             
             cmd = ['detect-secrets', 'scan', '--all-files']
             for pattern in exclude_patterns:

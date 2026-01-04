@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from app.core.base_tool import BaseTool
 from app.core.subprocess_wrapper import SubprocessWrapper
+from app.core.config import get_analysis_excludes_comma, get_analysis_excludes_regex
 import logging
 import json
 import subprocess
@@ -67,8 +68,8 @@ class SecurityTool(BaseTool):
     def _run_bandit(self, project_path: Path) -> Dict[str, Any]:
         """Run Bandit for code security analysis."""
         try:
-            # Optimization: Exclude tests, venv, node_modules, and cache
-            excludes = "tests,test,.venv,venv,__pycache__,build,dist,node_modules"
+            # Use centralized exclusion config
+            excludes = get_analysis_excludes_comma()
             result = subprocess.run(
                 [sys.executable, '-m', 'bandit', '-r', str(project_path), '-f', 'json', '--exclude', excludes, '-ll', '--quiet'],
                 cwd=project_path,
@@ -191,17 +192,8 @@ class SecurityTool(BaseTool):
     
     def _run_detect_secrets(self, project_path: Path) -> Dict[str, Any]:
         """Run detect-secrets for credential detection."""
-        # Exclude node_modules, build artifacts, and other non-source files
-        exclude_patterns = [
-            'node_modules/.*',
-            'dist/.*',
-            'build/.*',
-            '__pycache__/.*',
-            '.*\.min\.js',
-            'package-lock\.json',
-            '\.venv/.*',
-            'venv/.*'
-        ]
+        # Use centralized exclusion config
+        exclude_patterns = get_analysis_excludes_regex()
         
         cmd = ['detect-secrets', 'scan', '--all-files']
         for pattern in exclude_patterns:

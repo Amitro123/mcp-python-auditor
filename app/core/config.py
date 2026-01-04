@@ -7,6 +7,56 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# ============================================
+# Central "Dispatcher" Logic - Exclusion Lists
+# ============================================
+
+# Files/dirs excluded from deep code analysis (security, secrets, complexity, etc.)
+ANALYSIS_EXCLUDES = [
+    "node_modules", "dist", "build", 
+    "venv", ".venv", "env",
+    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+    ".git", ".svn", ".idea", ".vscode",
+    "coverage", "htmlcov", ".tox", ".nox",
+    "migrations"  # Database migrations - typically auto-generated
+]
+
+# Files/dirs excluded from cleanup detection (minimal - only version control)
+CLEANUP_EXCLUDES = [".git", ".svn"]
+
+
+def get_analysis_excludes_comma() -> str:
+    """
+    Get analysis exclusions as comma-separated string.
+    Used by tools like bandit that accept --exclude with comma-separated values.
+    """
+    return ",".join(ANALYSIS_EXCLUDES)
+
+
+def get_analysis_excludes_regex() -> List[str]:
+    """
+    Get analysis exclusions as regex patterns.
+    Used by tools like detect-secrets that accept --exclude-files with regex.
+    """
+    patterns = []
+    for ex in ANALYSIS_EXCLUDES:
+        # Escape dots and create directory pattern
+        if ex.startswith('.'):
+            patterns.append(f"\\{ex}/.*")
+        else:
+            patterns.append(f"{ex}/.*")
+    
+    # Add specific file patterns
+    patterns.extend([
+        '.*\\.min\\.js',      # Minified JavaScript
+        'package-lock\\.json', # npm lock file
+        'yarn\\.lock'         # yarn lock file
+    ])
+    
+    return patterns
+
+
+
 class AuditConfig:
     """Configuration for project audit."""
     

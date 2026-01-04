@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 from app.core.base_tool import BaseTool
 from app.core.subprocess_wrapper import SubprocessWrapper
+from app.core.config import get_analysis_excludes_comma
 import logging
 import json
 import sys
@@ -76,8 +77,8 @@ class ComplexityTool(BaseTool):
     
     def _get_cyclomatic_complexity(self, project_path: Path) -> List[Dict[str, Any]]:
         """Get cyclomatic complexity metrics."""
-        # Optimization: Ignore non-code directories
-        ignore_patterns = "tests,test,.venv,venv,__pycache__,build,dist"
+        # Use centralized exclusion config
+        ignore_patterns = get_analysis_excludes_comma()
         success, stdout, stderr = SubprocessWrapper.run_command(
             [sys.executable, '-m', 'radon', 'cc', str(project_path), '-j', '-a', '-i', ignore_patterns],
             cwd=project_path,
@@ -115,8 +116,8 @@ class ComplexityTool(BaseTool):
     
     def _get_maintainability_index(self, project_path: Path) -> List[Dict[str, Any]]:
         """Get maintainability index metrics."""
-        # Optimization: Ignore non-code directories
-        ignore_patterns = "tests,test,.venv,venv,__pycache__,build,dist"
+        # Use centralized exclusion config
+        ignore_patterns = get_analysis_excludes_comma()
         success, stdout, stderr = SubprocessWrapper.run_command(
             [sys.executable, '-m', 'radon', 'mi', str(project_path), '-j', '-i', ignore_patterns],
             cwd=project_path,

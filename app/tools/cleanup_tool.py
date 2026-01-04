@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 import os
 from app.core.base_tool import BaseTool
+from app.core.config import CLEANUP_EXCLUDES, ANALYSIS_EXCLUDES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,9 @@ class CleanupTool(BaseTool):
             for root, dirs, files in os.walk(project_path):
                 # Check if current directory matches any cache pattern
                 root_name = Path(root).name
+                
+                # Skip directories from CLEANUP_EXCLUDES (system files)
+                dirs[:] = [d for d in dirs if d not in CLEANUP_EXCLUDES]
                 
                 for pattern in cache_patterns:
                     if pattern in dirs:
