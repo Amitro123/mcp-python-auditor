@@ -193,12 +193,15 @@ class TestsTool(BaseTool):
                     env=env
                 )
                 
+                
                 # Parse coverage percentage from output
-                # Look for "TOTAL" line
+                # Look for "TOTAL" line and extract percentage (robust to warnings/spacing)
                 for line in report_result.stdout.split('\n'):
                     if 'TOTAL' in line:
-                        # Extract percentage (last column)
-                        match = re.search(r'(\d+)%', line)
+                        # Match TOTAL followed by any content, then capture final percentage
+                        # This handles cases like: "TOTAL  2371  1923  19%"
+                        # Also handles warnings in between columns
+                        match = re.search(r'TOTAL\s+.*?(\d+)%', line)
                         if match:
                             coverage_pct = int(match.group(1))
                             logger.info(f"Coverage: {coverage_pct}%")
