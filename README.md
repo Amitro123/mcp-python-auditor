@@ -29,11 +29,14 @@ ProjectAuditAgent performs deep code analysis using AST parsing, detects duplica
 - **Enable/disable tools** - Control which tools run via API
 
 ### **Production Features**
+- ✅ **Health check system** - Proactive dependency warnings on startup and in reports
+- ✅ **Robust command execution** - Uses `sys.executable` pattern to prevent PATH issues
 - ✅ 100% local execution (no external APIs)
-- ✅ **Smart venv detection** - Uses target project's Python interpreter for accurate coverage
+- ✅ **Smart venv detection** - Searches parent directories for accurate coverage
 - ✅ **Meaningful report filenames** - `audit_{project_name}_{timestamp}.md`
-- ✅ **Enhanced reports** - Top 3 issues summary, compact empty sections, git context
+- ✅ **Enhanced reports** - Top 3 issues summary, prominent warnings, compact sections
 - ✅ **Intelligent filtering** - Ignores valid constants, singletons, and test code
+- ✅ **Optimized cleanup detection** - Prevents recursive cache directory noise
 - ✅ Comprehensive scoring algorithm (0-100)
 - ✅ Detailed markdown reports
 - ✅ FastAPI REST API with full OpenAPI docs
@@ -298,20 +301,34 @@ pytest --cov=app --cov-report=html
 
 ## 🎯 Key Improvements
 
+### **Health Check System** 🆕
+Proactive dependency monitoring prevents runtime failures:
+- **Server Startup Check**: Validates `radon`, `vulture`, `bandit` are installed
+- **Target Project Check**: Detects missing `pytest-cov` before running coverage
+- **Prominent Warnings**: GitHub-style alerts in reports with exact install commands
+- **Example**: `⚠️ MISSING PREREQUISITE: 'pytest-cov' not installed. Coverage cannot be calculated.`
+
+### **Robust Command Execution** 🆕
+Uses `sys.executable -m` pattern to prevent "command not found" crashes:
+- Works on Windows, Linux, and macOS regardless of PATH configuration
+- Runs tools via current Python interpreter instead of shell commands
+- **Fixed tools**: `radon`, `vulture`, `bandit` now execute reliably
+
 ### **Smart Venv Detection**
 The tests tool automatically detects and uses your project's virtual environment:
-- Searches for `.venv`, `venv`, or `env` directories
+- **Searches parent directories** - Finds venv even when auditing subdirectories
 - OS-aware: Windows (`Scripts/python.exe`) vs Linux/Mac (`bin/python`)
 - Verifies pytest availability before use
 - Falls back to system coverage with warnings
-- **Result:** Accurate coverage reporting using your project's dependencies
+- **Handles test failures gracefully** - Reports coverage even when tests fail (exit code 1)
 
 ### **Intelligent Filtering**
 - **Efficiency Tool**: Ignores UPPERCASE constants, private variables (`_prefix`), and common singletons (generator, service, client, etc.)
 - **Duplication Tool**: Automatically excludes `tests/` and `test/` directories
-- **Cleanup Tool**: Groups cache directories into single summary lines instead of listing hundreds of files
+- **Cleanup Tool**: Groups cache directories into single summary lines instead of listing hundreds of individual `.pyc` files
 
 ### **Enhanced Reports**
+- **Dependency Warnings**: Prominently displayed after score using GitHub alert boxes
 - **Top 3 Critical Issues**: Summary at the top prioritized by severity
 - **Compact Empty Sections**: Shows `✅ No issues` instead of taking up 5+ lines
 - **Git Context**: Displays recent commits and uncommitted changes
