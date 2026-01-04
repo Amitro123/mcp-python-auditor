@@ -176,9 +176,8 @@ class TestsTool(BaseTool):
                     logger.warning(error_msg)
                     return 0, error_msg
             
-            # Get coverage report
-            # Allow exit code 0 (Success), 1 (Tests Failed), 5 (No Tests Collected)
-            if result.returncode in [0, 1, 5]:
+            # Allow exit code 0 (Success), 1 (Tests Failed), 2 (Collection Errors), 5 (No Tests Collected)
+            if result.returncode in [0, 1, 2, 5]:
                 if venv_python:
                     report_cmd = [str(venv_python), '-m', 'coverage', 'report', '--precision=0', '--ignore-errors']
                 else:
@@ -196,12 +195,11 @@ class TestsTool(BaseTool):
                 
                 # Parse coverage percentage from output
                 # Look for "TOTAL" line and extract percentage (robust to warnings/spacing)
-                for line in report_result.stdout.split('\n'):
+                for line in report_result.stdout.splitlines():
                     if 'TOTAL' in line:
                         # Match TOTAL followed by any content, then capture final percentage
                         # This handles cases like: "TOTAL  2371  1923  19%"
-                        # Also handles warnings in between columns
-                        match = re.search(r'TOTAL\s+.*?(\d+)%', line)
+                        match = re.search(r'TOTAL\s+.*?\s+(\d+)%', line)
                         if match:
                             coverage_pct = int(match.group(1))
                             logger.info(f"Coverage: {coverage_pct}%")

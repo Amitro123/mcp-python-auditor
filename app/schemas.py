@@ -38,7 +38,7 @@ class AuditResult(BaseModel):
     report_id: str
     project_path: str
     timestamp: datetime = Field(default_factory=datetime.now)
-    score: int = Field(default=0, ge=0, le=100)
+    score: float = Field(default=0.0, ge=0.0, le=100.0)
     tool_results: Dict[str, ToolResult] = Field(default_factory=dict)
     report_path: Optional[str] = None
     summary: str = ""
