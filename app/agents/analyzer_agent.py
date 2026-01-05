@@ -1,17 +1,25 @@
 """Main analyzer agent - Orchestrates all analysis tools."""
 import time
 import re
+import os
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, Tuple
 from datetime import datetime
 import logging
 import asyncio
 
 from app.core.tool_registry import registry
 from app.core.report_generator import ReportGenerator
+from app.core.self_healing import SelfHealingAnalyzer
 from app.schemas import ToolResult, AuditResult
 
 logger = logging.getLogger(__name__)
+
+# Performance configuration
+MAX_CONCURRENT_TOOLS = 3  # Semaphore limit
+MAX_TOOL_TIMEOUT = 45  # seconds per tool
+MAX_PY_FILES_HEAVY = 200  # Skip heavy tools above this
+MAX_SIZE_MB_HEAVY = 100  # Skip heavy tools above this size
 
 
 class AnalyzerAgent:
@@ -21,6 +29,7 @@ class AnalyzerAgent:
         self.reports_dir = reports_dir
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         self.report_generator = ReportGenerator(reports_dir)
+        self.self_healing = SelfHealingAnalyzer()
     
     async def analyze_project(
         self,
@@ -51,11 +60,23 @@ class AnalyzerAgent:
         
         logger.info(f"Starting analysis of {project_path} (report_id: {report_id})")
         
-        # Pre-flight check: Count python files
-        py_files_count = self._count_python_files(path)
-        logger.info(f"Project contains {py_files_count} Python files")
+        # Calculate project stats (py_files + size)
+        project_stats = self._calculate_project_stats(path)
+        py_files_count = project_stats['py_files']
+        size_mb = project_stats['size_mb']
+        logger.info(f"Project stats: {py_files_count} Python files, {size_mb:.1f}MB total")
         
-        heavy_tools = {'complexity', 'deadcode', 'duplication'}
+        # Self-healing preflight check
+        dep_status = self.self_healing.check_dependencies()
+        pytest_health = self.self_healing.check_pytest_health(path)
+        
+        if dep_status['missing']:
+            logger.warning(f"Missing dependencies: {[d['name'] for d in dep_status['missing']]}")
+            fix_cmd = self.self_healing.get_auto_fix_command()
+            if fix_cmd:
+                logger.warning(f"Auto-fix command: {fix_cmd}")
+        
+        heavy_tools = {'complexity', 'deadcode', 'duplication'}  # Security MUST always run
         skipped_tools = []
         
         # Get tools to run
@@ -65,43 +86,59 @@ class AnalyzerAgent:
         else:
             tools_to_run = registry.get_enabled_tools()
             
-        # Smart Skipping logic
-        if py_files_count > 300:
-            for tool_name in list(tools_to_run.keys()):
-                if tool_name in heavy_tools:
-                    logger.warning(f"Skipping heavy tool '{tool_name}' due to project size ({py_files_count} files)")
-                    skipped_tools.append(tool_name)
-                    del tools_to_run[tool_name]
+        # Smart Skipping logic: Skip heavy tools for large projects
+        for tool_name in list(tools_to_run.keys()):
+            if self._should_skip_heavy_tool(tool_name, project_stats, heavy_tools):
+                reason = f"project size ({py_files_count} files, {size_mb:.1f}MB)"
+                logger.warning(f"Skipping heavy tool '{tool_name}' due to {reason}")
+                skipped_tools.append(tool_name)
+                del tools_to_run[tool_name]
         
-        # Run tools in parallel
+        # Run tools with controlled concurrency (Semaphore)
         tool_results = {}
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_TOOLS)
         
         async def run_tool_safe(name, tool):
-            logger.info(f"Running tool: {name}")
-            tool_start = time.time()
-            try:
-                # Use asyncio.to_thread for blocking I/O (subprocess calls in tools)
-                result_data = await asyncio.to_thread(tool.analyze, path)
-                success = 'error' not in result_data
-                errors = [result_data['error']] if 'error' in result_data else []
-                
-                return name, ToolResult(
-                    tool_name=name,
-                    success=success,
-                    data=result_data,
-                    errors=errors,
-                    execution_time=time.time() - tool_start
-                )
-            except Exception as e:
-                logger.error(f"Tool {name} failed: {e}")
-                return name, ToolResult(
-                    tool_name=name,
-                    success=False,
-                    errors=[str(e)],
-                    execution_time=time.time() - tool_start
-                )
+            """Run tool with semaphore, timeout, and error handling."""
+            async with semaphore:  # Limit concurrent execution
+                logger.info(f"Running tool: {name}")
+                tool_start = time.time()
+                try:
+                    # Use asyncio.to_thread for blocking I/O with timeout
+                    result_data = await asyncio.wait_for(
+                        asyncio.to_thread(tool.analyze, path),
+                        timeout=MAX_TOOL_TIMEOUT
+                    )
+                    success = 'error' not in result_data
+                    errors = [result_data['error']] if 'error' in result_data else []
+                    
+                    return name, ToolResult(
+                        tool_name=name,
+                        success=success,
+                        data=result_data,
+                        errors=errors,
+                        execution_time=time.time() - tool_start
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"Tool {name} timed out after {MAX_TOOL_TIMEOUT}s")
+                    return name, ToolResult(
+                        tool_name=name,
+                        success=False,
+                        data={'skipped': True, 'reason': f'timeout ({MAX_TOOL_TIMEOUT}s)'},
+                        errors=[f"Tool timed out after {MAX_TOOL_TIMEOUT}s"],
+                        warnings=[f"Skipped: timeout ({MAX_TOOL_TIMEOUT}s)"],
+                        execution_time=MAX_TOOL_TIMEOUT
+                    )
+                except Exception as e:
+                    logger.error(f"Tool {name} failed: {e}")
+                    return name, ToolResult(
+                        tool_name=name,
+                        success=False,
+                        errors=[str(e)],
+                        execution_time=time.time() - tool_start
+                    )
         
-        # Execute all tools concurrently
+        # Execute all tools concurrently with semaphore control
         tasks = [run_tool_safe(name, tool) for name, tool in tools_to_run.items()]
         if tasks:
             results = await asyncio.gather(*tasks)
@@ -119,6 +156,14 @@ class AnalyzerAgent:
                     name: result.data
                     for name, result in tool_results.items()
                     if result.success
+                }
+                
+                # Add self-healing data
+                results_dict['self_healing'] = {
+                    'dependencies': dep_status,
+                    'pytest_health': pytest_health,
+                    'healing_log': self.self_healing.healing_log,
+                    'one_command_fix': self.self_healing.get_one_command_fix()
                 }
                 
                 report_path = self.report_generator.generate_report(
@@ -279,3 +324,64 @@ class AnalyzerAgent:
             summary_parts.append(f"⚠️ Heavy tools skipped due to project size: {tools_str}.")
         
         return " ".join(summary_parts)
+    
+    def _calculate_project_stats(self, path: Path) -> Dict[str, Any]:
+        """
+        Calculate project statistics (file count and size).
+        
+        Returns:
+            Dict with 'py_files' (int) and 'size_mb' (float)
+        """
+        py_files = 0
+        total_size = 0
+        
+        try:
+            for item in path.rglob('*'):
+                if item.is_file():
+                    # Count Python files
+                    if item.suffix == '.py':
+                        py_files += 1
+                    
+                    # Calculate total size (excluding common large dirs)
+                    if not any(exclude in item.parts for exclude in 
+                              ['node_modules', '.venv', 'venv', '__pycache__', '.git']):
+                        try:
+                            total_size += item.stat().st_size
+                        except (OSError, PermissionError):
+                            pass
+        except Exception as e:
+            logger.warning(f"Error calculating project stats: {e}")
+        
+        size_mb = total_size / (1024 * 1024)  # Convert to MB
+        
+        return {
+            'py_files': py_files,
+            'size_mb': size_mb
+        }
+    
+    def _should_skip_heavy_tool(
+        self, 
+        tool_name: str, 
+        project_stats: Dict[str, Any],
+        heavy_tools: Set[str]
+    ) -> bool:
+        """
+        Determine if a heavy tool should be skipped based on project size.
+        
+        Args:
+            tool_name: Name of the tool
+            project_stats: Dict with 'py_files' and 'size_mb'
+            heavy_tools: Set of tool names considered heavy
+            
+        Returns:
+            True if tool should be skipped
+        """
+        if tool_name not in heavy_tools:
+            return False
+        
+        py_files = project_stats.get('py_files', 0)
+        size_mb = project_stats.get('size_mb', 0)
+        
+        # Skip if exceeds either threshold
+        return py_files > MAX_PY_FILES_HEAVY or size_mb > MAX_SIZE_MB_HEAVY
+
