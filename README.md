@@ -543,3 +543,68 @@ for tool in tools:
 **Built with ❤️ using FastAPI, Pydantic, and AST magic**
 
 For issues or questions, please open a GitHub issue.
+
+##  Dataset & Fine-tuning (v2.6)
+
+###  Fine-tuned Model
+- **Model:** audit-multi-v1 (Gemma-2-2B + LoRA)
+- **Dataset:** 100 audit examples
+- **Coverage:** 13 tools + PR reviews
+- **Training:** ~1 hour on T4 GPU
+
+###  Dataset Stats
+**File:** data/audit_dataset.jsonl
+
+| Metric | Value |
+|--------|-------|
+| Total Examples | 100 |
+| Tools Covered | 13 |
+| Avg Instruction | 72 chars |
+| Avg Output | 271 chars |
+| Format | Alpaca (instruction/output) |
+
+**Scenarios:**
+- Tool-specific queries (40%)
+- Complete audits (30%)
+- PR reviews (20%)
+- Fix recommendations (10%)
+
+###  Usage
+
+**Validate Dataset:**
+```bash
+python validate_dataset.py
+# Expected: PASS  (100 examples)
+```
+
+**Fine-tune on Kaggle:**
+1. Upload inetune/kaggle_finetune.ipynb
+2. Add dataset: data/audit_dataset.jsonl
+3. Run notebook (~1 hour on T4 GPU)
+4. Download model: udit-multi-v1
+
+##  New Tools (v2.6)
+
+### Self-Healing
+- **Auto-detects** missing dependencies
+- **Generates** one-command fixes
+- **Reports** health status
+
+### Git Integration
+- Last commit tracking
+- Branch status
+- Uncommitted changes detection
+
+**Example Output:**
+```markdown
+##  SELF-HEALING STATUS
+
+**Dependency Health:** 40%
+**Missing:** radon, vulture, detect-secrets
+
+ **One-Command Fix:**
+```bash
+pip install radon vulture detect-secrets
+```
+```
+
