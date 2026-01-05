@@ -159,7 +159,7 @@ class TestsTool(BaseTool):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=180,  # Increased to 180s for heavy suites + security scan overhead
+                timeout=300,  # Increased to 300s for heavy E2E testsan overhead
                 cwd=project_path,
                 env=env
             )

@@ -16,3 +16,4 @@ Learned:
 ✅ **Robust Summaries**: Explicitly calling out skipped or failed components in the final user-facing summary string.
 ✅ **Security Tool Exclusions**: Always use `--exclude-files` with patterns like `node_modules/.*`, `dist/.*`, `.*\.min\.js` for detect-secrets, and comma-separated exclusions for bandit.
 ✅ **Centralized Config**: Define `ANALYSIS_EXCLUDES` and `CLEANUP_EXCLUDES` in a central config module. Create helper functions like `get_analysis_excludes_comma()` and `get_analysis_excludes_regex()` for different tool formats.
+✅ **Security Timeouts**: Set timeouts to 600s (10 min) for analysis tools to handle large/complex projects.

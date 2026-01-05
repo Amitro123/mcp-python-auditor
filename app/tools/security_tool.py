@@ -75,7 +75,7 @@ class SecurityTool(BaseTool):
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=300,
+                timeout=600,
                 errors='replace'
             )
             
