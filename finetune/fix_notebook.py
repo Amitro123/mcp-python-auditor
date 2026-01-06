@@ -1,14 +1,21 @@
-"""
-ULTIMATE E2E FIX - Self-Healing Magic Cell
-Does not require manual restart. The cell automatically restarts the kernel
-on first run and continues on the second run.
-"""
-
 import json
+import os
 
 notebook_path = 'finetune/kaggle_finetune.ipynb'
-with open(notebook_path, 'r', encoding='utf-8') as f:
-    notebook = json.load(f)
+
+# --- Notebook Structure ---
+notebook = {
+    "cells": [],
+    "metadata": {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3"
+        }
+    },
+    "nbformat": 4,
+    "nbformat_minor": 4
+}
 
 # --- CELL 0: Title ---
 cell_0 = {
@@ -24,61 +31,52 @@ cell_0 = {
     ]
 }
 
-# --- CELL 1: THE MAGIC CELL (Installs + Auto-Restarts + Loads) ---
+# --- CELL 1: THE MAGIC CELL ---
 cell_1_code = {
     "cell_type": "code",
     "metadata": {},
     "source": [
         "# MAGIC CELL: Install -> Auto-Restart -> Load\n",
-        "import os\n",
-        "import sys\n",
-        "import subprocess\n",
+        "import os, sys, subprocess, time\n",
         "\n",
         "def is_env_ready():\n",
         "    try:\n",
-        "        import unsloth\n",
-        "        import torch\n",
+        "        import unsloth, torch, torchvision\n",
         "        from transformers.processing_utils import Unpack\n",
-        "        import torchvision\n",
         "        return True\n",
-        "    except (ImportError, AttributeError):\n",
+        "    except:\n",
         "        return False\n",
         "\n",
         "if not is_env_ready():\n",
-        "    print(\"🚀 Step 1: Installing stable environment...\")\n",
-        "    # Clean\n",
-        "    subprocess.run(\"pip uninstall -y torchao unsloth unsloth_zoo transformers -q\", shell=True)\n",
+        "    print('🚀 Step 1: Installing stable environment...')\n",
+        "    subprocess.run('pip uninstall -y torchao unsloth unsloth_zoo transformers -q', shell=True)\n",
         "    \n",
-        "    # Stable Stack\n",
         "    pkgs = [\n",
-        "        \"torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121\",\n",
-        "        \"fsspec==2024.9.0 datasets==4.2.0\",\n",
-        "        \"transformers>=4.45.0 peft accelerate bitsandbytes trl\",\n",
+        "        'torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121',\n",
+        "        'fsspec==2024.9.0 datasets==4.2.0',\n",
+        "        'transformers>=4.45.0 peft accelerate bitsandbytes trl',\n",
         "        '\"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
-        "        \"xformers==0.0.28.post3\"\n",
+        "        'xformers==0.0.28.post3'\n",
         "    ]\n",
         "    \n",
         "    for pkg in pkgs:\n",
-        "        print(f\"   Installing {pkg.split(' ')[0]}...\")\n",
-        "        subprocess.run(f\"pip install -q --no-cache-dir {pkg}\", shell=True)\n",
+        "        print(f'   Installing {pkg.split(\" \")[0]}...')\n",
+        "        subprocess.run(f'pip install -q --no-cache-dir {pkg}', shell=True)\n",
         "\n",
-        "    print(\"\\n✅ Setup complete! Auto-restarting kernel...\")\n",
-        "    import os\n",
+        "    print('\\n✅ Setup complete! Auto-restarting...')\n",
         "    os._exit(0)\n",
         "\n",
-        "import unsloth\n",
-        "import torch\n",
+        "import unsloth, torch\n",
         "from unsloth import FastLanguageModel\n",
-        "print(\"✅ Environment Ready!\")\n",
-        "print(f\"✅ Torch: {torch.__version__} | GPU: {torch.cuda.get_device_name(0)}\")\n",
+        "print('✅ Environment Ready!')\n",
         "\n",
         "model, tokenizer = FastLanguageModel.from_pretrained(\n",
-        "    model_name=\\\"unsloth/gemma-2-2b-it-bnb-4bit\\\",\n",
+        "    model_name='unsloth/gemma-2-2b-it-bnb-4bit',\n",
         "    max_seq_length=2048,\n",
         "    dtype=None,\n",
         "    load_in_4bit=True,\n",
         ")\n",
-        "print(\"✅ Model Loaded!\")"
+        "print('✅ Model Loaded!')"
     ]
 }
 
@@ -113,9 +111,13 @@ cell_3_code = {
         "    m = glob.glob(p)\n",
         "    if m: dataset_path = m[0]; break\n",
         "else: dataset_path = \"audit_dataset.jsonl\"\n",
+        "\n",
         "dataset = load_dataset(\"json\", data_files=dataset_path, split=\"train\")\n",
-        "ALPACA = \"\"\"Below is an instruction that describes a task. Write a response that appropriately completes the request.\\n\\n### Instruction:\\n{}\\n\\n### Response:\\n{}\"\"\"\n",
-        "dataset = dataset.map(lambda x: {\"text\": [ALPACA.format(i, o) + tokenizer.eos_token for i, o in zip(x[\"instruction\"], x[\"output\"])]}, batched=True)\n"
+        "ALPACA = \"\"\"Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\n{}\\n\\n### Response:\n{}\"\"\"\n",
+        "dataset = dataset.map(lambda x: {\n",
+        "    \"text\": [ALPACA.format(i, o) + tokenizer.eos_token for i, o in zip(x['instruction'], x['output'])]\n",
+        "}, batched=True)\n",
+        "print(f'✅ Loaded {len(dataset)} examples')"
     ]
 }
 
@@ -132,7 +134,6 @@ cell_4_code = {
         "    train_dataset=dataset,\n",
         "    dataset_text_field=\"text\",\n",
         "    max_seq_length=2048,\n",
-        "    dataset_num_proc=2,\n",
         "    args=TrainingArguments(\n",
         "        output_dir=\"./outputs\",\n",
         "        per_device_train_batch_size=2,\n",
@@ -162,16 +163,19 @@ cell_5_code = {
 }
 
 # Assembly
-notebook['cells'] = [
-    cell_0, 
-    cell_1_code,
-    cell_2_code, 
-    cell_3_code, 
-    cell_4_code, 
-    cell_5_code
-]
+notebook['cells'] = [cell_0, cell_1_code, cell_2_code, cell_3_code, cell_4_code, cell_5_code]
+
+# Normalize source to lists of lines ending with \n
+for cell in notebook['cells']:
+    lines = []
+    for line in cell['source']:
+        if not line.endswith('\n'):
+            lines.append(line + '\n')
+        else:
+            lines.append(line)
+    cell['source'] = lines
 
 with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
-print("[OK] Self-healing notebook generated!")
+print("[OK] Notebook Rebuilt (Fixed SyntaxError)")
