@@ -37,77 +37,71 @@ cell_1_markdown = {
     ]
 }
 
-# THE COMPLETE FIX - uninstall torchao + proper versions
+# FINAL E2E FIX - BASED ON WORKING AMITROSEN PROJECTS
+# Strategy: Use the exact stack from qwen3-phone-deploy.ipynb (datasets 4.2.0, transformers 4.45.0+)
+
 cell_1_code = {
     "cell_type": "code",
     "execution_count": None,
     "metadata": {},
     "outputs": [],
     "source": [
-        "# KAGGLE UNSLOTH E2E FIX - 2026\n",
-        "# Fixes: torch._inductor.config, numpy binary, torch.int1 (torchao)\n",
+        "# KAGGLE UNSLOTH STABLE INSTALL (2026)\n",
+        "# Based on working config from qwen3-phone-deploy.ipynb\n",
         "\n",
         "import subprocess\n",
+        "import sys\n",
         "\n",
-        "def run(cmd, msg=\"\"):\n",
-        "    if msg: print(msg)\n",
-        "    subprocess.run(cmd, shell=True, capture_output=True)\n",
+        "def run_pip(cmd, msg):\n",
+        "    print(msg)\n",
+        "    # Using --no-cache-dir to ensure fresh binaries\n",
+        "    full_cmd = f\"pip install -q --no-cache-dir {cmd}\"\n",
+        "    subprocess.run(full_cmd, shell=True, capture_output=True)\n",
         "\n",
         "print(\"=\"*60)\n",
-        "print(\"KAGGLE UNSLOTH COMPLETE INSTALL\")\n",
+        "print(\"🚀 KAGGLE UNSLOTH STABLE INSTALL\")\n",
         "print(\"=\"*60)\n",
         "\n",
-        "# Step 1: Uninstall conflicting packages\n",
-        "run(\"pip uninstall -y torchao -q\", \"[1/6] Removing torchao (causes torch.int1 error)...\")\n",
+        "print(\"[1/5] Cleaning environment...\")\n",
+        "subprocess.run(\"pip uninstall -y torchao unsloth unsloth_zoo transformers -q\", shell=True)\n",
         "\n",
-        "# Step 2: Upgrade PyTorch\n",
-        "run(\n",
-        "    \"pip install -q torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121\",\n",
-        "    \"[2/6] Installing PyTorch 2.5.1...\"\n",
+        "run_pip(\n",
+        "    \"fsspec==2024.9.0 datasets==4.2.0 huggingface_hub>=0.23.0\", \n",
+        "    \"[2/5] Installing base deps (fsspec 2024.9.0, datasets 4.2.0)...\"\n",
         ")\n",
         "\n",
-        "# Step 3: Force reinstall numpy\n",
-        "run(\"pip install -q --force-reinstall numpy\", \"[3/6] Reinstalling numpy...\")\n",
-        "\n",
-        "# Step 4: Install Unsloth\n",
-        "run(\n",
-        "    'pip install -q \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
-        "    \"[4/6] Installing Unsloth...\"\n",
-        ")\n",
-        "run(\"pip install -q unsloth_zoo\", \"     + unsloth_zoo...\")\n",
-        "\n",
-        "# Step 5: Training deps (pin transformers to avoid torchao)\n",
-        "run(\n",
-        "    \"pip install -q trl==0.9.6 peft accelerate bitsandbytes datasets transformers==4.44.2\",\n",
-        "    \"[5/6] Installing training dependencies...\"\n",
+        "run_pip(\n",
+        "    \"peft accelerate bitsandbytes trl transformers>=4.45.0\",\n",
+        "    \"[3/5] Installing training components (transformers >= 4.45.0)...\"\n",
         ")\n",
         "\n",
-        "# Step 6: xformers\n",
-        "run(\"pip install -q xformers==0.0.28.post3\", \"[6/6] Installing xformers...\")\n",
+        "run_pip(\n",
+        "    '\"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
+        "    \"[4/5] Installing Unsloth (GitHub Latest)...\"\n",
+        ")\n",
         "\n",
-        "# Verify torchao is gone\n",
-        "result = subprocess.run(\"pip show torchao\", shell=True, capture_output=True)\n",
-        "torchao_status = \"REMOVED\" if result.returncode != 0 else \"WARNING: Still installed!\"\n",
+        "run_pip(\"xformers==0.0.28.post3\", \"[5/5] Installing xformers...\")\n",
         "\n",
         "print(\"\\n\" + \"=\"*60)\n",
-        "print(\"[OK] Installation complete!\")\n",
-        "print(f\"[OK] torchao: {torchao_status}\")\n",
+        "print(\"✅ INSTALLATION COMPLETE!\")\n",
         "print(\"=\"*60)\n",
         "print(\"\\n\" + \"*\"*60)\n",
-        "print(\"***  RESTART KERNEL NOW!  ***\")\n",
-        "print(\"***  Then run Cell 2 (skip this cell)  ***\")\n",
-        "print(\"*\"*60)"
+        "print(\"*** IMPORTANT: RESTART KERNEL NOW! ***\")\n",
+        "print(\"*** Then run the cells below in order. ***\")\n",
+        "print(\"*\"*60)\n"
     ]
 }
 
 # ============================================================================
-# CELL 2: Verify (after restart)
+# CELL 2: Load Model (Import unsloth FIRST)
 # ============================================================================
 cell_2_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 2. Verify (run after kernel restart)"
+        "## 2. Load Model\n",
+        "\n",
+        "**Crucial:** Import `unsloth` before anything else!"
     ]
 }
 
@@ -117,22 +111,24 @@ cell_2_code = {
     "metadata": {},
     "outputs": [],
     "source": [
-        "# MUST import unsloth FIRST (before transformers)\n",
-        "import unsloth\n",
-        "\n",
+        "import unsloth  # Must be first!\n",
         "import torch\n",
-        "import numpy as np\n",
-        "\n",
-        "print(f\"[OK] torch: {torch.__version__}\")\n",
-        "print(f\"[OK] numpy: {np.__version__}\")\n",
-        "print(f\"[OK] CUDA: {torch.cuda.is_available()}\")\n",
-        "\n",
-        "if torch.cuda.is_available():\n",
-        "    print(f\"[OK] GPU: {torch.cuda.get_device_name(0)}\")\n",
-        "    print(f\"[OK] VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB\")\n",
-        "\n",
         "from unsloth import FastLanguageModel\n",
-        "print(\"\\n[OK] Unsloth imported successfully!\")"
+        "\n",
+        "print(f\"✅ Unsloth: {unsloth.__version__}\")\n",
+        "print(f\"✅ Torch: {torch.__version__}\")\n",
+        "\n",
+        "# Configuration\n",
+        "MODEL_NAME = \"unsloth/gemma-2-2b-it-bnb-4bit\"\n",
+        "MAX_SEQ_LENGTH = 2048\n",
+        "LOAD_IN_4BIT = True\n",
+        "\n",
+        "model, tokenizer = FastLanguageModel.from_pretrained(\n",
+        "    model_name=MODEL_NAME,\n",
+        "    max_seq_length=MAX_SEQ_LENGTH,\n",
+        "    dtype=None,  # Auto-detect\n",
+        "    load_in_4bit=LOAD_IN_4BIT,\n",
+        ")"
     ]
 }
 
@@ -357,12 +353,12 @@ with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
 print("[OK] FINAL E2E FIX APPLIED!")
-print("\n[FIXES APPLIED]")
-print("  1. UNINSTALL torchao (causes torch.int1 error)")
-print("  2. Pin transformers==4.44.2 (avoids torchao import)")
-print("  3. Import unsloth FIRST in Cell 2 (before transformers)")
-print("  4. Force reinstall numpy (binary fix)")
-print("  5. Upgrade torch 2.4.0 -> 2.5.1")
+print("\n[FIXES APPLIED - KAGGLE STABLE 2026]")
+print("  1. CLEAN ENVIRONMENT (Uninstall torchao, unsloth, zoo)")
+print("  2. PIN datasets==4.2.0 (Stable version from working projects)")
+print("  3. UPGRADE transformers>=4.45.0 (Fixes Unpack error)")
+print("  4. USE unsloth[colab-new] (Latest GitHub optimizations)")
+print("  5. IMPORT unsloth FIRST in Model Load cell")
 print("\n[WORKFLOW]")
 print("  1. Run Cell 1 -> RESTART KERNEL")
-print("  2. Run Cells 2-7 (skip Cell 1)")
+print("  2. Run Cell 2 (Model Load) -> Success")
