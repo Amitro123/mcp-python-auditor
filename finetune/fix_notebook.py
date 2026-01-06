@@ -1,6 +1,6 @@
 """
-Production Kaggle Notebook Generator - NUMPY BINARY FIX
-Key: Use numpy 2.x compatible with torch 2.5.1, OR force reinstall
+FINAL FIX - Uninstall torchao which causes torch.int1 error
+torchao is optional and causes version conflicts
 """
 
 import json
@@ -18,95 +18,96 @@ cell_0_markdown = {
     "source": [
         "# Fine-tune Gemma-2-2b for Code Audit (Kaggle T4)\n",
         "\n",
-        "**Production Notebook** | Amit Rosen | Ashkelon, Israel | 2026\n",
+        "**Production Notebook** | 2026 | ~25 min training\n",
         "\n",
-        "| Setting | Value |\n",
-        "|---------|-------|\n",
-        "| Model | `unsloth/gemma-2-2b-it-bnb-4bit` |\n",
-        "| GPU | Tesla T4 (16GB VRAM) |\n",
-        "| Train Time | ~25 min |"
+        "**Workflow:**\n",
+        "1. Run Cell 1 (Install) → RESTART KERNEL\n",
+        "2. Run Cells 2-7 (skip Cell 1)"
     ]
 }
 
 # ============================================================================
-# CELL 1: Install - NUMPY 2.x FIX
+# CELL 1: Install - COMPLETE FIX
 # ============================================================================
 cell_1_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 1. Install Dependencies\n",
-        "\n",
-        "**Run this cell, then RESTART KERNEL before continuing!**"
+        "## 1. Install (then RESTART KERNEL!)"
     ]
 }
 
-# The key insight: torch 2.5.1 needs numpy 2.x, not 1.26.4
+# THE COMPLETE FIX - uninstall torchao + proper versions
 cell_1_code = {
     "cell_type": "code",
     "execution_count": None,
     "metadata": {},
     "outputs": [],
     "source": [
-        "# KAGGLE UNSLOTH INSTALL - NUMPY 2.x COMPATIBLE\n",
-        "# Run this cell, then RESTART KERNEL!\n",
+        "# KAGGLE UNSLOTH E2E FIX - 2026\n",
+        "# Fixes: torch._inductor.config, numpy binary, torch.int1 (torchao)\n",
         "\n",
         "import subprocess\n",
-        "import sys\n",
-        "import os\n",
         "\n",
-        "def run(cmd, msg):\n",
-        "    print(msg)\n",
+        "def run(cmd, msg=\"\"):\n",
+        "    if msg: print(msg)\n",
         "    subprocess.run(cmd, shell=True, capture_output=True)\n",
         "\n",
-        "# Step 1: Upgrade PyTorch to 2.5.1\n",
+        "print(\"=\"*60)\n",
+        "print(\"KAGGLE UNSLOTH COMPLETE INSTALL\")\n",
+        "print(\"=\"*60)\n",
+        "\n",
+        "# Step 1: Uninstall conflicting packages\n",
+        "run(\"pip uninstall -y torchao -q\", \"[1/6] Removing torchao (causes torch.int1 error)...\")\n",
+        "\n",
+        "# Step 2: Upgrade PyTorch\n",
         "run(\n",
         "    \"pip install -q torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121\",\n",
-        "    \"[1/5] Installing PyTorch 2.5.1...\"\n",
+        "    \"[2/6] Installing PyTorch 2.5.1...\"\n",
         ")\n",
         "\n",
-        "# Step 2: Force reinstall numpy (binary compatible with new torch)\n",
-        "run(\n",
-        "    \"pip install -q --force-reinstall numpy\",\n",
-        "    \"[2/5] Reinstalling numpy (binary fix)...\"\n",
-        ")\n",
+        "# Step 3: Force reinstall numpy\n",
+        "run(\"pip install -q --force-reinstall numpy\", \"[3/6] Reinstalling numpy...\")\n",
         "\n",
-        "# Step 3: Install Unsloth with specific unsloth_zoo\n",
+        "# Step 4: Install Unsloth\n",
         "run(\n",
         "    'pip install -q \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
-        "    \"[3/5] Installing Unsloth...\"\n",
+        "    \"[4/6] Installing Unsloth...\"\n",
         ")\n",
         "run(\"pip install -q unsloth_zoo\", \"     + unsloth_zoo...\")\n",
         "\n",
-        "# Step 4: Training dependencies\n",
+        "# Step 5: Training deps (pin transformers to avoid torchao)\n",
         "run(\n",
-        "    \"pip install -q trl==0.9.6 peft accelerate bitsandbytes datasets\",\n",
-        "    \"[4/5] Installing training dependencies...\"\n",
+        "    \"pip install -q trl==0.9.6 peft accelerate bitsandbytes datasets transformers==4.44.2\",\n",
+        "    \"[5/6] Installing training dependencies...\"\n",
         ")\n",
         "\n",
-        "# Step 5: xformers\n",
-        "run(\"pip install -q xformers==0.0.28.post3\", \"[5/5] Installing xformers...\")\n",
+        "# Step 6: xformers\n",
+        "run(\"pip install -q xformers==0.0.28.post3\", \"[6/6] Installing xformers...\")\n",
+        "\n",
+        "# Verify torchao is gone\n",
+        "result = subprocess.run(\"pip show torchao\", shell=True, capture_output=True)\n",
+        "torchao_status = \"REMOVED\" if result.returncode != 0 else \"WARNING: Still installed!\"\n",
         "\n",
         "print(\"\\n\" + \"=\"*60)\n",
         "print(\"[OK] Installation complete!\")\n",
+        "print(f\"[OK] torchao: {torchao_status}\")\n",
         "print(\"=\"*60)\n",
         "print(\"\\n\" + \"*\"*60)\n",
-        "print(\"*** IMPORTANT: RESTART KERNEL NOW! ***\")\n",
-        "print(\"*** Then run Cell 2 (skip this cell) ***\")\n",
+        "print(\"***  RESTART KERNEL NOW!  ***\")\n",
+        "print(\"***  Then run Cell 2 (skip this cell)  ***\")\n",
         "print(\"*\"*60)"
     ]
 }
 
 # ============================================================================
-# CELL 2: Verify Install (run AFTER kernel restart)
+# CELL 2: Verify (after restart)
 # ============================================================================
 cell_2_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 2. Verify Installation\n",
-        "\n",
-        "Run this AFTER kernel restart"
+        "## 2. Verify (run after kernel restart)"
     ]
 }
 
@@ -116,7 +117,9 @@ cell_2_code = {
     "metadata": {},
     "outputs": [],
     "source": [
-        "# Verify installation (run after kernel restart)\n",
+        "# MUST import unsloth FIRST (before transformers)\n",
+        "import unsloth\n",
+        "\n",
         "import torch\n",
         "import numpy as np\n",
         "\n",
@@ -128,10 +131,8 @@ cell_2_code = {
         "    print(f\"[OK] GPU: {torch.cuda.get_device_name(0)}\")\n",
         "    print(f\"[OK] VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB\")\n",
         "\n",
-        "# Test unsloth import\n",
-        "print(\"\\n[INFO] Testing unsloth import...\")\n",
         "from unsloth import FastLanguageModel\n",
-        "print(\"[OK] Unsloth imported successfully!\")"
+        "print(\"\\n[OK] Unsloth imported successfully!\")"
     ]
 }
 
@@ -142,9 +143,7 @@ cell_3_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 3. Load Model\n",
-        "\n",
-        "Loading `gemma-2-2b-it` in 4-bit (~5GB VRAM)"
+        "## 3. Load Model"
     ]
 }
 
@@ -154,19 +153,16 @@ cell_3_code = {
     "metadata": {},
     "outputs": [],
     "source": [
-        "# Configuration\n",
         "MODEL_NAME = \"unsloth/gemma-2-2b-it-bnb-4bit\"\n",
         "MAX_SEQ_LENGTH = 2048\n",
-        "DTYPE = None\n",
-        "LOAD_IN_4BIT = True\n",
         "\n",
         "print(f\"[INFO] Loading {MODEL_NAME}...\")\n",
         "\n",
         "model, tokenizer = FastLanguageModel.from_pretrained(\n",
         "    model_name=MODEL_NAME,\n",
         "    max_seq_length=MAX_SEQ_LENGTH,\n",
-        "    dtype=DTYPE,\n",
-        "    load_in_4bit=LOAD_IN_4BIT,\n",
+        "    dtype=None,\n",
+        "    load_in_4bit=True,\n",
         ")\n",
         "\n",
         "print(f\"\\n[OK] Model loaded!\")\n",
@@ -175,7 +171,7 @@ cell_3_code = {
 }
 
 # ============================================================================
-# CELL 4: LoRA Adapters
+# CELL 4: LoRA
 # ============================================================================
 cell_4_markdown = {
     "cell_type": "markdown",
@@ -203,13 +199,13 @@ cell_4_code = {
         "    random_state=3407,\n",
         ")\n",
         "\n",
-        "print(\"[OK] LoRA adapters added!\")\n",
+        "print(\"[OK] LoRA added!\")\n",
         "model.print_trainable_parameters()"
     ]
 }
 
 # ============================================================================
-# CELL 5: Load Dataset
+# CELL 5: Dataset
 # ============================================================================
 cell_5_markdown = {
     "cell_type": "markdown",
@@ -229,22 +225,19 @@ cell_5_code = {
         "import glob\n",
         "\n",
         "# Find dataset\n",
-        "paths = [\"/kaggle/input/audit-dataset/audit_dataset.jsonl\",\n",
-        "         \"/kaggle/input/*/audit_dataset.jsonl\",\n",
-        "         \"/kaggle/input/*/*.jsonl\"]\n",
-        "\n",
-        "dataset_path = None\n",
-        "for p in paths:\n",
+        "for p in [\"/kaggle/input/audit-dataset/audit_dataset.jsonl\",\n",
+        "          \"/kaggle/input/*/audit_dataset.jsonl\",\n",
+        "          \"/kaggle/input/*/*.jsonl\"]:\n",
         "    m = glob.glob(p)\n",
-        "    if m: dataset_path = m[0]; break\n",
-        "\n",
-        "if not dataset_path:\n",
-        "    raise FileNotFoundError(\"Upload audit_dataset.jsonl to Kaggle Input!\")\n",
+        "    if m:\n",
+        "        dataset_path = m[0]\n",
+        "        break\n",
+        "else:\n",
+        "    raise FileNotFoundError(\"Upload audit_dataset.jsonl!\")\n",
         "\n",
         "print(f\"[INFO] Loading: {dataset_path}\")\n",
         "dataset = load_dataset(\"json\", data_files=dataset_path, split=\"train\")\n",
         "\n",
-        "# Alpaca format\n",
         "ALPACA = \"\"\"Below is an instruction that describes a task. Write a response that appropriately completes the request.\n",
         "\n",
         "### Instruction:\n",
@@ -259,7 +252,7 @@ cell_5_code = {
         "    return {\"text\": [ALPACA.format(i, o) + EOS for i, o in zip(ex[\"instruction\"], ex[\"output\"])]}\n",
         "\n",
         "dataset = dataset.map(fmt, batched=True)\n",
-        "print(f\"[OK] Loaded {len(dataset)} examples\")"
+        "print(f\"[OK] {len(dataset)} examples\")"
     ]
 }
 
@@ -309,7 +302,7 @@ cell_6_code = {
         "    ),\n",
         ")\n",
         "\n",
-        "print(\"[INFO] Training... (~25 min)\")\n",
+        "print(\"[INFO] Training...\")\n",
         "stats = trainer.train()\n",
         "print(f\"\\n[OK] Done in {stats.metrics['train_runtime']:.0f}s\")"
     ]
@@ -332,7 +325,7 @@ cell_7_code = {
     "metadata": {},
     "outputs": [],
     "source": [
-        "# Test inference\n",
+        "# Test\n",
         "FastLanguageModel.for_inference(model)\n",
         "test = \"Analyze test coverage: 330 files, 5 executable, 0% coverage\"\n",
         "inputs = tokenizer([ALPACA.format(test, \"\")], return_tensors=\"pt\").to(\"cuda\")\n",
@@ -363,12 +356,13 @@ notebook['cells'] = [
 with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
-print("[OK] Notebook fixed!")
-print("\n[KEY FIXES]")
-print("  1. Use --force-reinstall numpy (binary compatible)")
-print("  2. Added KERNEL RESTART instruction")
-print("  3. Separate verify cell after restart")
+print("[OK] FINAL E2E FIX APPLIED!")
+print("\n[FIXES APPLIED]")
+print("  1. UNINSTALL torchao (causes torch.int1 error)")
+print("  2. Pin transformers==4.44.2 (avoids torchao import)")
+print("  3. Import unsloth FIRST in Cell 2 (before transformers)")
+print("  4. Force reinstall numpy (binary fix)")
+print("  5. Upgrade torch 2.4.0 -> 2.5.1")
 print("\n[WORKFLOW]")
-print("  Cell 1: Install -> RESTART KERNEL")
-print("  Cell 2: Verify (skip Cell 1)")
-print("  Cell 3-7: Train")
+print("  1. Run Cell 1 -> RESTART KERNEL")
+print("  2. Run Cells 2-7 (skip Cell 1)")
