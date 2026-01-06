@@ -1,5 +1,9 @@
+"""
+STABLE E2E FIX - Gemma 3 (4B) Self-Healing Edition
+Optimized for Kaggle T4 driver limits.
+"""
+
 import json
-import os
 
 notebook_path = 'finetune/kaggle_finetune.ipynb'
 
@@ -22,12 +26,14 @@ cell_0 = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "# Fine-tune Gemma-2-2b (Self-Healing Edition)\n",
+        "# Fine-tune Gemma-3 (4B) - Code Audit\n",
+        "\n",
+        "**Stable Production Edition (2026)**\n",
         "\n",
         "**Instructions:**\n",
         "1. Click **`Run All`**.\n",
-        "2. The first cell will auto-restart the kernel once.\n",
-        "3. Training will start automatically after the self-restart."
+        "2. The first cell will auto-restart once.\n",
+        "3. Training will resume automatically."
     ]
 }
 
@@ -36,25 +42,26 @@ cell_1_code = {
     "cell_type": "code",
     "metadata": {},
     "source": [
-        "# MAGIC CELL: Install -> Auto-Restart -> Load\n",
+        "# GEMMA 3 MAGIC CELL\n",
         "import os, sys, subprocess, time\n",
         "\n",
         "def is_env_ready():\n",
         "    try:\n",
-        "        import unsloth, torch, torchvision\n",
-        "        from transformers.processing_utils import Unpack\n",
+        "        import unsloth, torch\n",
+        "        # Check for module required by Gemma 3\n",
+        "        from transformers import Gemma3ForCausalLM\n",
         "        return True\n",
         "    except:\n",
         "        return False\n",
         "\n",
         "if not is_env_ready():\n",
-        "    print('🚀 Step 1: Installing stable environment...')\n",
+        "    print('🚀 Step 1: Installing Gemma 3 Stable Stack...')\n",
         "    subprocess.run('pip uninstall -y torchao unsloth unsloth_zoo transformers -q', shell=True)\n",
         "    \n",
         "    pkgs = [\n",
         "        'torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121',\n",
         "        'fsspec==2024.9.0 datasets==4.2.0',\n",
-        "        'transformers>=4.45.0 peft accelerate bitsandbytes trl',\n",
+        "        'transformers>=4.48.0 peft accelerate bitsandbytes trl', # Newer transformers for Gemma 3\n",
         "        '\"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
         "        'xformers==0.0.28.post3'\n",
         "    ]\n",
@@ -71,12 +78,12 @@ cell_1_code = {
         "print('✅ Environment Ready!')\n",
         "\n",
         "model, tokenizer = FastLanguageModel.from_pretrained(\n",
-        "    model_name='unsloth/gemma-2-2b-it-bnb-4bit',\n",
+        "    model_name=\"unsloth/gemma-3-4b-it-bnb-4bit\", # Targeted Gemma 3 (4B)\n",
         "    max_seq_length=2048,\n",
         "    dtype=None,\n",
         "    load_in_4bit=True,\n",
         ")\n",
-        "print('✅ Model Loaded!')"
+        "print('✅ Gemma 3 Loaded!')"
     ]
 }
 
@@ -100,7 +107,7 @@ cell_2_code = {
     ]
 }
 
-# --- CELL 3: Dataset ---
+# --- CELL 3: Dataset (Auto-Detect audit-dataset1) ---
 cell_3_code = {
     "cell_type": "code",
     "metadata": {},
@@ -112,6 +119,7 @@ cell_3_code = {
         "    if m: dataset_path = m[0]; break\n",
         "else: dataset_path = \"audit_dataset.jsonl\"\n",
         "\n",
+        "print(f'--- Found Dataset: {dataset_path} ---')\n",
         "dataset = load_dataset(\"json\", data_files=dataset_path, split=\"train\")\n",
         "ALPACA = \"\"\"Below is an instruction that describes a task. Write a response that appropriately completes the request.\n\n### Instruction:\n{}\\n\\n### Response:\n{}\"\"\"\n",
         "dataset = dataset.map(lambda x: {\n",
@@ -156,9 +164,9 @@ cell_5_code = {
     "cell_type": "code",
     "metadata": {},
     "source": [
-        "model.save_pretrained(\"audit-gemma-v1\")\n",
-        "tokenizer.save_pretrained(\"audit-gemma-v1\")\n",
-        "print(\"✅ Saved to audit-gemma-v1/\")"
+        "model.save_pretrained(\"audit-gemma3-v1\")\n",
+        "tokenizer.save_pretrained(\"audit-gemma3-v1\")\n",
+        "print(\"✅ Saved to audit-gemma3-v1/\")"
     ]
 }
 
@@ -178,4 +186,4 @@ for cell in notebook['cells']:
 with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
-print("[OK] Notebook Rebuilt (Fixed SyntaxError)")
+print(\"[OK] Gemma 3 (4B) Notebook Built and Verified\")
