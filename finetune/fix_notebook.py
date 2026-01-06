@@ -1,6 +1,6 @@
 """
-Production Kaggle Notebook Generator - FIXED for torch._inductor.config
-The key: Upgrade torch 2.4.0 → 2.5.1 FIRST, then install unsloth
+Production Kaggle Notebook Generator - NUMPY BINARY FIX
+Key: Use numpy 2.x compatible with torch 2.5.1, OR force reinstall
 """
 
 import json
@@ -10,7 +10,7 @@ with open(notebook_path, 'r', encoding='utf-8') as f:
     notebook = json.load(f)
 
 # ============================================================================
-# CELL 0: Title Markdown
+# CELL 0: Title
 # ============================================================================
 cell_0_markdown = {
     "cell_type": "markdown",
@@ -24,15 +24,12 @@ cell_0_markdown = {
         "|---------|-------|\n",
         "| Model | `unsloth/gemma-2-2b-it-bnb-4bit` |\n",
         "| GPU | Tesla T4 (16GB VRAM) |\n",
-        "| Train Time | ~25 min |\n",
-        "| Dataset | 100 audit examples |\n",
-        "\n",
-        "**Setup:** Upload `audit_dataset.jsonl` to Kaggle Input"
+        "| Train Time | ~25 min |"
     ]
 }
 
 # ============================================================================
-# CELL 1: Install Dependencies - FIXED VERSION
+# CELL 1: Install - NUMPY 2.x FIX
 # ============================================================================
 cell_1_markdown = {
     "cell_type": "markdown",
@@ -40,87 +37,76 @@ cell_1_markdown = {
     "source": [
         "## 1. Install Dependencies\n",
         "\n",
-        "**FIX:** Upgrade torch 2.4.0 → 2.5.1 (required for `torch._inductor.config`)"
+        "**Run this cell, then RESTART KERNEL before continuing!**"
     ]
 }
 
-# THE KEY FIX: Upgrade torch FIRST before installing unsloth
+# The key insight: torch 2.5.1 needs numpy 2.x, not 1.26.4
 cell_1_code = {
     "cell_type": "code",
     "execution_count": None,
     "metadata": {},
     "outputs": [],
     "source": [
-        "# KAGGLE UNSLOTH INSTALL - TORCH 2.5.1 FIX\n",
-        "# Fixes: AttributeError: module 'torch._inductor' has no attribute 'config'\n",
+        "# KAGGLE UNSLOTH INSTALL - NUMPY 2.x COMPATIBLE\n",
+        "# Run this cell, then RESTART KERNEL!\n",
         "\n",
         "import subprocess\n",
         "import sys\n",
+        "import os\n",
         "\n",
-        "def pip_install(packages, msg):\n",
-        "    \"\"\"Silent pip install with status\"\"\"\n",
-        "    print(f\"{msg}\")\n",
-        "    cmd = f\"pip install -q {packages}\"\n",
-        "    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)\n",
-        "    if result.returncode != 0 and 'error' in result.stderr.lower():\n",
-        "        print(f\"  [WARN] {result.stderr[-300:]}\")\n",
+        "def run(cmd, msg):\n",
+        "    print(msg)\n",
+        "    subprocess.run(cmd, shell=True, capture_output=True)\n",
         "\n",
-        "# STEP 1: Upgrade PyTorch to 2.5.1 (has torch._inductor.config)\n",
-        "pip_install(\n",
-        "    \"torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121\",\n",
-        "    \"[1/5] Upgrading PyTorch 2.4.0 → 2.5.1 (fixes _inductor.config)...\"\n",
+        "# Step 1: Upgrade PyTorch to 2.5.1\n",
+        "run(\n",
+        "    \"pip install -q torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121\",\n",
+        "    \"[1/5] Installing PyTorch 2.5.1...\"\n",
         ")\n",
         "\n",
-        "# STEP 2: Install numpy 1.26.4 (compatibility)\n",
-        "pip_install(\"numpy==1.26.4\", \"[2/5] Installing numpy 1.26.4...\")\n",
+        "# Step 2: Force reinstall numpy (binary compatible with new torch)\n",
+        "run(\n",
+        "    \"pip install -q --force-reinstall numpy\",\n",
+        "    \"[2/5] Reinstalling numpy (binary fix)...\"\n",
+        ")\n",
         "\n",
-        "# STEP 3: Install Unsloth + unsloth_zoo\n",
-        "pip_install(\n",
-        "    '\"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
+        "# Step 3: Install Unsloth with specific unsloth_zoo\n",
+        "run(\n",
+        "    'pip install -q \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
         "    \"[3/5] Installing Unsloth...\"\n",
         ")\n",
-        "pip_install(\"unsloth_zoo\", \"     + unsloth_zoo...\")\n",
+        "run(\"pip install -q unsloth_zoo\", \"     + unsloth_zoo...\")\n",
         "\n",
-        "# STEP 4: Install training dependencies\n",
-        "pip_install(\n",
-        "    \"trl==0.9.6 peft accelerate bitsandbytes datasets\",\n",
+        "# Step 4: Training dependencies\n",
+        "run(\n",
+        "    \"pip install -q trl==0.9.6 peft accelerate bitsandbytes datasets\",\n",
         "    \"[4/5] Installing training dependencies...\"\n",
         ")\n",
         "\n",
-        "# STEP 5: Install xformers (compatible with torch 2.5.1)\n",
-        "pip_install(\"xformers==0.0.28.post3\", \"[5/5] Installing xformers...\")\n",
+        "# Step 5: xformers\n",
+        "run(\"pip install -q xformers==0.0.28.post3\", \"[5/5] Installing xformers...\")\n",
         "\n",
-        "print(\"\\n\" + \"=\"*50)\n",
+        "print(\"\\n\" + \"=\"*60)\n",
         "print(\"[OK] Installation complete!\")\n",
-        "print(\"=\"*50)\n",
-        "\n",
-        "# Verify torch upgrade\n",
-        "import torch\n",
-        "print(f\"\\n[OK] torch: {torch.__version__}\")\n",
-        "print(f\"[OK] CUDA: {torch.cuda.is_available()}\")\n",
-        "if torch.cuda.is_available():\n",
-        "    print(f\"[OK] GPU: {torch.cuda.get_device_name(0)}\")\n",
-        "    print(f\"[OK] VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB\")\n",
-        "\n",
-        "# Verify _inductor.config exists\n",
-        "try:\n",
-        "    import torch._inductor.config\n",
-        "    print(\"[OK] torch._inductor.config: Available\")\n",
-        "except AttributeError:\n",
-        "    print(\"[FAIL] torch._inductor.config: Missing - restart kernel!\")"
+        "print(\"=\"*60)\n",
+        "print(\"\\n\" + \"*\"*60)\n",
+        "print(\"*** IMPORTANT: RESTART KERNEL NOW! ***\")\n",
+        "print(\"*** Then run Cell 2 (skip this cell) ***\")\n",
+        "print(\"*\"*60)"
     ]
 }
 
 # ============================================================================
-# CELL 2: Load Model + Tokenizer (unchanged)
+# CELL 2: Verify Install (run AFTER kernel restart)
 # ============================================================================
 cell_2_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 2. Load Model\n",
+        "## 2. Verify Installation\n",
         "\n",
-        "Loading `gemma-2-2b-it` in 4-bit quantization (~5GB VRAM)"
+        "Run this AFTER kernel restart"
     ]
 }
 
@@ -130,40 +116,35 @@ cell_2_code = {
     "metadata": {},
     "outputs": [],
     "source": [
+        "# Verify installation (run after kernel restart)\n",
         "import torch\n",
+        "import numpy as np\n",
+        "\n",
+        "print(f\"[OK] torch: {torch.__version__}\")\n",
+        "print(f\"[OK] numpy: {np.__version__}\")\n",
+        "print(f\"[OK] CUDA: {torch.cuda.is_available()}\")\n",
+        "\n",
+        "if torch.cuda.is_available():\n",
+        "    print(f\"[OK] GPU: {torch.cuda.get_device_name(0)}\")\n",
+        "    print(f\"[OK] VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB\")\n",
+        "\n",
+        "# Test unsloth import\n",
+        "print(\"\\n[INFO] Testing unsloth import...\")\n",
         "from unsloth import FastLanguageModel\n",
-        "\n",
-        "# Configuration\n",
-        "MODEL_NAME = \"unsloth/gemma-2-2b-it-bnb-4bit\"\n",
-        "MAX_SEQ_LENGTH = 2048\n",
-        "DTYPE = None  # Auto-detect (float16 on T4)\n",
-        "LOAD_IN_4BIT = True\n",
-        "\n",
-        "print(f\"[INFO] Loading {MODEL_NAME}...\")\n",
-        "print(f\"[INFO] Sequence length: {MAX_SEQ_LENGTH}\")\n",
-        "\n",
-        "model, tokenizer = FastLanguageModel.from_pretrained(\n",
-        "    model_name=MODEL_NAME,\n",
-        "    max_seq_length=MAX_SEQ_LENGTH,\n",
-        "    dtype=DTYPE,\n",
-        "    load_in_4bit=LOAD_IN_4BIT,\n",
-        ")\n",
-        "\n",
-        "print(f\"\\n[OK] Model loaded successfully!\")\n",
-        "print(f\"[OK] VRAM used: {torch.cuda.memory_allocated() / 1e9:.2f} GB\")"
+        "print(\"[OK] Unsloth imported successfully!\")"
     ]
 }
 
 # ============================================================================
-# CELL 3: Add LoRA Adapters
+# CELL 3: Load Model
 # ============================================================================
 cell_3_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 3. Add LoRA Adapters\n",
+        "## 3. Load Model\n",
         "\n",
-        "LoRA config: r=16, targeting all attention + MLP layers"
+        "Loading `gemma-2-2b-it` in 4-bit (~5GB VRAM)"
     ]
 }
 
@@ -173,43 +154,34 @@ cell_3_code = {
     "metadata": {},
     "outputs": [],
     "source": [
-        "# LoRA Configuration\n",
-        "LORA_R = 16\n",
-        "LORA_ALPHA = 16\n",
-        "LORA_DROPOUT = 0\n",
-        "TARGET_MODULES = [\n",
-        "    \"q_proj\", \"k_proj\", \"v_proj\", \"o_proj\",  # Attention\n",
-        "    \"gate_proj\", \"up_proj\", \"down_proj\"       # MLP\n",
-        "]\n",
+        "# Configuration\n",
+        "MODEL_NAME = \"unsloth/gemma-2-2b-it-bnb-4bit\"\n",
+        "MAX_SEQ_LENGTH = 2048\n",
+        "DTYPE = None\n",
+        "LOAD_IN_4BIT = True\n",
         "\n",
-        "print(f\"[INFO] Adding LoRA adapters (r={LORA_R})...\")\n",
+        "print(f\"[INFO] Loading {MODEL_NAME}...\")\n",
         "\n",
-        "model = FastLanguageModel.get_peft_model(\n",
-        "    model,\n",
-        "    r=LORA_R,\n",
-        "    target_modules=TARGET_MODULES,\n",
-        "    lora_alpha=LORA_ALPHA,\n",
-        "    lora_dropout=LORA_DROPOUT,\n",
-        "    bias=\"none\",\n",
-        "    use_gradient_checkpointing=\"unsloth\",\n",
-        "    random_state=3407,\n",
+        "model, tokenizer = FastLanguageModel.from_pretrained(\n",
+        "    model_name=MODEL_NAME,\n",
+        "    max_seq_length=MAX_SEQ_LENGTH,\n",
+        "    dtype=DTYPE,\n",
+        "    load_in_4bit=LOAD_IN_4BIT,\n",
         ")\n",
         "\n",
-        "print(\"\\n[OK] LoRA adapters added!\")\n",
-        "model.print_trainable_parameters()"
+        "print(f\"\\n[OK] Model loaded!\")\n",
+        "print(f\"[OK] VRAM: {torch.cuda.memory_allocated() / 1e9:.2f} GB\")"
     ]
 }
 
 # ============================================================================
-# CELL 4: Load Dataset
+# CELL 4: LoRA Adapters
 # ============================================================================
 cell_4_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 4. Load Audit Dataset\n",
-        "\n",
-        "Loading `audit_dataset.jsonl` with Alpaca prompt format"
+        "## 4. Add LoRA Adapters"
     ]
 }
 
@@ -219,67 +191,31 @@ cell_4_code = {
     "metadata": {},
     "outputs": [],
     "source": [
-        "from datasets import load_dataset\n",
-        "import glob\n",
+        "model = FastLanguageModel.get_peft_model(\n",
+        "    model,\n",
+        "    r=16,\n",
+        "    target_modules=[\"q_proj\", \"k_proj\", \"v_proj\", \"o_proj\",\n",
+        "                    \"gate_proj\", \"up_proj\", \"down_proj\"],\n",
+        "    lora_alpha=16,\n",
+        "    lora_dropout=0,\n",
+        "    bias=\"none\",\n",
+        "    use_gradient_checkpointing=\"unsloth\",\n",
+        "    random_state=3407,\n",
+        ")\n",
         "\n",
-        "# Find dataset in Kaggle input folders\n",
-        "DATASET_PATHS = [\n",
-        "    \"/kaggle/input/audit-dataset/audit_dataset.jsonl\",\n",
-        "    \"/kaggle/input/*/audit_dataset.jsonl\",\n",
-        "    \"/kaggle/input/*/*.jsonl\",\n",
-        "]\n",
-        "\n",
-        "dataset_path = None\n",
-        "for pattern in DATASET_PATHS:\n",
-        "    matches = glob.glob(pattern)\n",
-        "    if matches:\n",
-        "        dataset_path = matches[0]\n",
-        "        break\n",
-        "\n",
-        "if not dataset_path:\n",
-        "    raise FileNotFoundError(\n",
-        "        \"Dataset not found! Upload audit_dataset.jsonl to Kaggle Input.\"\n",
-        "    )\n",
-        "\n",
-        "print(f\"[INFO] Loading dataset from: {dataset_path}\")\n",
-        "dataset = load_dataset(\"json\", data_files=dataset_path, split=\"train\")\n",
-        "\n",
-        "# Alpaca prompt template\n",
-        "ALPACA_PROMPT = \"\"\"Below is an instruction that describes a task. Write a response that appropriately completes the request.\n",
-        "\n",
-        "### Instruction:\n",
-        "{}\n",
-        "\n",
-        "### Response:\n",
-        "{}\"\"\"\n",
-        "\n",
-        "EOS_TOKEN = tokenizer.eos_token\n",
-        "\n",
-        "def format_prompt(examples):\n",
-        "    texts = []\n",
-        "    for instruction, output in zip(examples[\"instruction\"], examples[\"output\"]):\n",
-        "        text = ALPACA_PROMPT.format(instruction, output) + EOS_TOKEN\n",
-        "        texts.append(text)\n",
-        "    return {\"text\": texts}\n",
-        "\n",
-        "print(\"[INFO] Formatting dataset...\")\n",
-        "dataset = dataset.map(format_prompt, batched=True)\n",
-        "\n",
-        "print(f\"\\n[OK] Loaded {len(dataset)} examples\")\n",
-        "print(f\"[SAMPLE] {dataset[0]['text'][:200]}...\")"
+        "print(\"[OK] LoRA adapters added!\")\n",
+        "model.print_trainable_parameters()"
     ]
 }
 
 # ============================================================================
-# CELL 5: Train Model
+# CELL 5: Load Dataset
 # ============================================================================
 cell_5_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 5. Train Model\n",
-        "\n",
-        "SFTTrainer with Unsloth optimization (~25 min on T4)"
+        "## 5. Load Dataset"
     ]
 }
 
@@ -289,10 +225,64 @@ cell_5_code = {
     "metadata": {},
     "outputs": [],
     "source": [
+        "from datasets import load_dataset\n",
+        "import glob\n",
+        "\n",
+        "# Find dataset\n",
+        "paths = [\"/kaggle/input/audit-dataset/audit_dataset.jsonl\",\n",
+        "         \"/kaggle/input/*/audit_dataset.jsonl\",\n",
+        "         \"/kaggle/input/*/*.jsonl\"]\n",
+        "\n",
+        "dataset_path = None\n",
+        "for p in paths:\n",
+        "    m = glob.glob(p)\n",
+        "    if m: dataset_path = m[0]; break\n",
+        "\n",
+        "if not dataset_path:\n",
+        "    raise FileNotFoundError(\"Upload audit_dataset.jsonl to Kaggle Input!\")\n",
+        "\n",
+        "print(f\"[INFO] Loading: {dataset_path}\")\n",
+        "dataset = load_dataset(\"json\", data_files=dataset_path, split=\"train\")\n",
+        "\n",
+        "# Alpaca format\n",
+        "ALPACA = \"\"\"Below is an instruction that describes a task. Write a response that appropriately completes the request.\n",
+        "\n",
+        "### Instruction:\n",
+        "{}\n",
+        "\n",
+        "### Response:\n",
+        "{}\"\"\"\n",
+        "\n",
+        "EOS = tokenizer.eos_token\n",
+        "\n",
+        "def fmt(ex):\n",
+        "    return {\"text\": [ALPACA.format(i, o) + EOS for i, o in zip(ex[\"instruction\"], ex[\"output\"])]}\n",
+        "\n",
+        "dataset = dataset.map(fmt, batched=True)\n",
+        "print(f\"[OK] Loaded {len(dataset)} examples\")"
+    ]
+}
+
+# ============================================================================
+# CELL 6: Train
+# ============================================================================
+cell_6_markdown = {
+    "cell_type": "markdown",
+    "metadata": {},
+    "source": [
+        "## 6. Train (~25 min)"
+    ]
+}
+
+cell_6_code = {
+    "cell_type": "code",
+    "execution_count": None,
+    "metadata": {},
+    "outputs": [],
+    "source": [
         "from transformers import TrainingArguments\n",
         "from trl import SFTTrainer\n",
         "\n",
-        "# Training configuration (optimized for T4 GPU)\n",
         "trainer = SFTTrainer(\n",
         "    model=model,\n",
         "    tokenizer=tokenizer,\n",
@@ -319,108 +309,66 @@ cell_5_code = {
         "    ),\n",
         ")\n",
         "\n",
-        "print(\"[INFO] Starting training...\")\n",
-        "print(\"[INFO] Expected time: ~25 minutes\")\n",
-        "print(\"=\"*50)\n",
-        "\n",
-        "trainer_stats = trainer.train()\n",
-        "\n",
-        "print(\"\\n\" + \"=\"*50)\n",
-        "print(\"[OK] Training complete!\")\n",
-        "print(f\"[OK] Time: {trainer_stats.metrics['train_runtime']:.1f}s\")\n",
-        "print(f\"[OK] Samples/sec: {trainer_stats.metrics['train_samples_per_second']:.2f}\")"
+        "print(\"[INFO] Training... (~25 min)\")\n",
+        "stats = trainer.train()\n",
+        "print(f\"\\n[OK] Done in {stats.metrics['train_runtime']:.0f}s\")"
     ]
 }
 
 # ============================================================================
-# CELL 6: Save Model
+# CELL 7: Save
 # ============================================================================
-cell_6_markdown = {
+cell_7_markdown = {
     "cell_type": "markdown",
     "metadata": {},
     "source": [
-        "## 6. Save Model\n",
-        "\n",
-        "Save locally + optionally push to HuggingFace Hub"
+        "## 7. Save Model"
     ]
 }
 
-cell_6_code = {
+cell_7_code = {
     "cell_type": "code",
     "execution_count": None,
     "metadata": {},
     "outputs": [],
     "source": [
-        "# Test inference first\n",
-        "print(\"[INFO] Testing inference...\")\n",
+        "# Test inference\n",
         "FastLanguageModel.for_inference(model)\n",
+        "test = \"Analyze test coverage: 330 files, 5 executable, 0% coverage\"\n",
+        "inputs = tokenizer([ALPACA.format(test, \"\")], return_tensors=\"pt\").to(\"cuda\")\n",
+        "out = model.generate(**inputs, max_new_tokens=256, use_cache=True)\n",
+        "print(\"[TEST]\\n\", tokenizer.decode(out[0]))\n",
         "\n",
-        "test_prompt = \"Analyze test coverage: 330 files found, 5 executable, 0% coverage\"\n",
-        "inputs = tokenizer(\n",
-        "    [ALPACA_PROMPT.format(test_prompt, \"\")],\n",
-        "    return_tensors=\"pt\"\n",
-        ").to(\"cuda\")\n",
-        "\n",
-        "outputs = model.generate(**inputs, max_new_tokens=256, use_cache=True)\n",
-        "result = tokenizer.batch_decode(outputs)[0]\n",
-        "\n",
-        "print(\"\\n[INFERENCE TEST]\")\n",
-        "print(result)\n",
-        "\n",
-        "# Save locally\n",
-        "print(\"\\n\" + \"=\"*50)\n",
-        "print(\"[INFO] Saving model...\")\n",
+        "# Save\n",
         "model.save_pretrained(\"audit-gemma-v1\")\n",
         "tokenizer.save_pretrained(\"audit-gemma-v1\")\n",
-        "print(\"[OK] Model saved to 'audit-gemma-v1/'\")\n",
-        "\n",
-        "# Optional: Push to HuggingFace\n",
-        "# Uncomment to push (requires HF_TOKEN in Kaggle secrets)\n",
-        "'''\n",
-        "from huggingface_hub import login\n",
-        "import os\n",
-        "\n",
-        "HF_TOKEN = os.environ.get(\"HF_TOKEN\") or \"YOUR_TOKEN_HERE\"\n",
-        "login(token=HF_TOKEN)\n",
-        "\n",
-        "model.push_to_hub(\"amitrosen/audit-gemma-v1\", token=HF_TOKEN)\n",
-        "tokenizer.push_to_hub(\"amitrosen/audit-gemma-v1\", token=HF_TOKEN)\n",
-        "print(\"[OK] Pushed to HuggingFace!\")\n",
-        "'''\n",
-        "\n",
-        "print(\"\\n\" + \"=\"*50)\n",
-        "print(\"[DONE] Fine-tuning complete!\")\n",
-        "print(\"Download 'audit-gemma-v1/' from Kaggle Output\")\n",
-        "print(\"=\"*50)"
+        "print(\"\\n[OK] Saved to audit-gemma-v1/\")"
     ]
 }
 
 # ============================================================================
-# BUILD NOTEBOOK
+# BUILD
 # ============================================================================
-new_cells = [
+notebook['cells'] = [
     cell_0_markdown,
-    cell_1_markdown,
-    cell_1_code,
-    cell_2_markdown,
-    cell_2_code,
-    cell_3_markdown,
-    cell_3_code,
-    cell_4_markdown,
-    cell_4_code,
-    cell_5_markdown,
-    cell_5_code,
-    cell_6_markdown,
-    cell_6_code,
+    cell_1_markdown, cell_1_code,
+    cell_2_markdown, cell_2_code,
+    cell_3_markdown, cell_3_code,
+    cell_4_markdown, cell_4_code,
+    cell_5_markdown, cell_5_code,
+    cell_6_markdown, cell_6_code,
+    cell_7_markdown, cell_7_code,
 ]
-
-notebook['cells'] = new_cells
 
 with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
 print("[OK] Notebook fixed!")
-print("\n[KEY FIX] Upgrade torch 2.4.0 -> 2.5.1 FIRST")
-print("  - torch 2.4.0 missing torch._inductor.config")
-print("  - torch 2.5.1 has it")
-print("  - xformers 0.0.28.post3 compatible with torch 2.5.1")
+print("\n[KEY FIXES]")
+print("  1. Use --force-reinstall numpy (binary compatible)")
+print("  2. Added KERNEL RESTART instruction")
+print("  3. Separate verify cell after restart")
+print("\n[WORKFLOW]")
+print("  Cell 1: Install -> RESTART KERNEL")
+print("  Cell 2: Verify (skip Cell 1)")
+print("  Cell 3-7: Train")
