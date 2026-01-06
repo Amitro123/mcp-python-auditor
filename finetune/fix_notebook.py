@@ -209,4 +209,4 @@ notebook['cells'] = [
 with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
-print("✅ Notebook Rebuilt Successfully (Clean & Stable)")
+print("[OK] Notebook Rebuilt Successfully (Clean & Stable)")
