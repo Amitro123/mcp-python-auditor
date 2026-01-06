@@ -1,11 +1,10 @@
 """
-Production Kaggle Notebook Generator for Unsloth Gemma-2-2b Fine-tuning
-Optimized for: Kaggle Tesla T4, Python 3.12, torch 2.4.1+cu121 (2026)
+Production Kaggle Notebook Generator - FIXED for torch._inductor.config
+The key: Upgrade torch 2.4.0 → 2.5.1 FIRST, then install unsloth
 """
 
 import json
 
-# Read the existing notebook
 notebook_path = 'finetune/kaggle_finetune.ipynb'
 with open(notebook_path, 'r', encoding='utf-8') as f:
     notebook = json.load(f)
@@ -33,7 +32,7 @@ cell_0_markdown = {
 }
 
 # ============================================================================
-# CELL 1: Install Dependencies (Ultra-Clean)
+# CELL 1: Install Dependencies - FIXED VERSION
 # ============================================================================
 cell_1_markdown = {
     "cell_type": "markdown",
@@ -41,58 +40,79 @@ cell_1_markdown = {
     "source": [
         "## 1. Install Dependencies\n",
         "\n",
-        "Ultra-clean install - works with Kaggle's pre-installed torch 2.4.1+cu121"
+        "**FIX:** Upgrade torch 2.4.0 → 2.5.1 (required for `torch._inductor.config`)"
     ]
 }
 
+# THE KEY FIX: Upgrade torch FIRST before installing unsloth
 cell_1_code = {
     "cell_type": "code",
     "execution_count": None,
     "metadata": {},
     "outputs": [],
     "source": [
-        "# KAGGLE UNSLOTH INSTALL (2026 STABLE)\n",
-        "# Works with pre-installed torch 2.4.1+cu121\n",
+        "# KAGGLE UNSLOTH INSTALL - TORCH 2.5.1 FIX\n",
+        "# Fixes: AttributeError: module 'torch._inductor' has no attribute 'config'\n",
         "\n",
         "import subprocess\n",
         "import sys\n",
         "\n",
-        "def run_quiet(cmd):\n",
-        "    \"\"\"Run pip command, show only errors\"\"\"\n",
+        "def pip_install(packages, msg):\n",
+        "    \"\"\"Silent pip install with status\"\"\"\n",
+        "    print(f\"{msg}\")\n",
+        "    cmd = f\"pip install -q {packages}\"\n",
         "    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)\n",
-        "    if result.returncode != 0:\n",
-        "        print(f\"[WARN] {result.stderr[-500:] if result.stderr else 'Unknown error'}\")\n",
-        "    return result.returncode == 0\n",
+        "    if result.returncode != 0 and 'error' in result.stderr.lower():\n",
+        "        print(f\"  [WARN] {result.stderr[-300:]}\")\n",
         "\n",
-        "print(\"[1/4] Installing numpy 1.26.4 (compatibility fix)...\")\n",
-        "run_quiet(\"pip install -q numpy==1.26.4\")\n",
+        "# STEP 1: Upgrade PyTorch to 2.5.1 (has torch._inductor.config)\n",
+        "pip_install(\n",
+        "    \"torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121\",\n",
+        "    \"[1/5] Upgrading PyTorch 2.4.0 → 2.5.1 (fixes _inductor.config)...\"\n",
+        ")\n",
         "\n",
-        "print(\"[2/4] Installing Unsloth + unsloth_zoo...\")\n",
-        "run_quiet('pip install -q \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"')\n",
-        "run_quiet('pip install -q unsloth_zoo')\n",
+        "# STEP 2: Install numpy 1.26.4 (compatibility)\n",
+        "pip_install(\"numpy==1.26.4\", \"[2/5] Installing numpy 1.26.4...\")\n",
         "\n",
-        "print(\"[3/4] Installing training dependencies...\")\n",
-        "run_quiet(\"pip install -q trl==0.9.6 peft accelerate bitsandbytes datasets\")\n",
+        "# STEP 3: Install Unsloth + unsloth_zoo\n",
+        "pip_install(\n",
+        "    '\"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\"',\n",
+        "    \"[3/5] Installing Unsloth...\"\n",
+        ")\n",
+        "pip_install(\"unsloth_zoo\", \"     + unsloth_zoo...\")\n",
         "\n",
-        "print(\"[4/4] Installing xformers (pre-built)...\")\n",
-        "run_quiet(\"pip install -q xformers==0.0.27.post2\")\n",
+        "# STEP 4: Install training dependencies\n",
+        "pip_install(\n",
+        "    \"trl==0.9.6 peft accelerate bitsandbytes datasets\",\n",
+        "    \"[4/5] Installing training dependencies...\"\n",
+        ")\n",
+        "\n",
+        "# STEP 5: Install xformers (compatible with torch 2.5.1)\n",
+        "pip_install(\"xformers==0.0.28.post3\", \"[5/5] Installing xformers...\")\n",
         "\n",
         "print(\"\\n\" + \"=\"*50)\n",
         "print(\"[OK] Installation complete!\")\n",
         "print(\"=\"*50)\n",
         "\n",
-        "# Verify\n",
+        "# Verify torch upgrade\n",
         "import torch\n",
         "print(f\"\\n[OK] torch: {torch.__version__}\")\n",
         "print(f\"[OK] CUDA: {torch.cuda.is_available()}\")\n",
         "if torch.cuda.is_available():\n",
         "    print(f\"[OK] GPU: {torch.cuda.get_device_name(0)}\")\n",
-        "    print(f\"[OK] VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB\")"
+        "    print(f\"[OK] VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB\")\n",
+        "\n",
+        "# Verify _inductor.config exists\n",
+        "try:\n",
+        "    import torch._inductor.config\n",
+        "    print(\"[OK] torch._inductor.config: Available\")\n",
+        "except AttributeError:\n",
+        "    print(\"[FAIL] torch._inductor.config: Missing - restart kernel!\")"
     ]
 }
 
 # ============================================================================
-# CELL 2: Load Model + Tokenizer
+# CELL 2: Load Model + Tokenizer (unchanged)
 # ============================================================================
 cell_2_markdown = {
     "cell_type": "markdown",
@@ -295,7 +315,7 @@ cell_5_code = {
         "        weight_decay=0.01,\n",
         "        lr_scheduler_type=\"linear\",\n",
         "        seed=3407,\n",
-        "        report_to=\"none\",  # Disable wandb\n",
+        "        report_to=\"none\",\n",
         "    ),\n",
         ")\n",
         "\n",
@@ -313,7 +333,7 @@ cell_5_code = {
 }
 
 # ============================================================================
-# CELL 6: Save Model + Push to HuggingFace
+# CELL 6: Save Model
 # ============================================================================
 cell_6_markdown = {
     "cell_type": "markdown",
@@ -396,15 +416,11 @@ new_cells = [
 
 notebook['cells'] = new_cells
 
-# Save
 with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
-print("[OK] Notebook rebuilt with 6 production cells!")
-print("\nCells:")
-print("  1. Install Dependencies (Ultra-Clean)")
-print("  2. Load Model + Tokenizer")
-print("  3. Add LoRA Adapters")
-print("  4. Load Audit Dataset")
-print("  5. Train Model (SFTTrainer)")
-print("  6. Save + Push to HuggingFace")
+print("[OK] Notebook fixed!")
+print("\n[KEY FIX] Upgrade torch 2.4.0 -> 2.5.1 FIRST")
+print("  - torch 2.4.0 missing torch._inductor.config")
+print("  - torch 2.5.1 has it")
+print("  - xformers 0.0.28.post3 compatible with torch 2.5.1")
