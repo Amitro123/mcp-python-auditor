@@ -1,8 +1,6 @@
 """
-Fix kaggle_finetune.ipynb to resolve PyTorch version conflicts.
-
-This script updates the installation cell to pin compatible PyTorch versions
-before installing Unsloth.
+Complete nuclear fix for kaggle_finetune.ipynb
+Updates both installation cell and documentation
 """
 
 import json
@@ -12,46 +10,73 @@ notebook_path = 'finetune/kaggle_finetune.ipynb'
 with open(notebook_path, 'r', encoding='utf-8') as f:
     notebook = json.load(f)
 
-# Updated installation cell source - each line must be a separate string
+# Updated installation markdown
+install_markdown = [
+    "## 1. Install Dependencies (Nuclear Clean)\n",
+    "\n",
+    "**Strategy:** Clean install with Kaggle-proven stable versions\n",
+    "- torch 2.5.1 + torchvision 0.20.1 (no conflicts)\n",
+    "- unsloth colab-new variant (Kaggle optimized)\n",
+    "- xformers 0.0.28.post1 (pre-built, no compile)\n",
+    "\n",
+    "**Time:** ~3-4 minutes"
+]
+
+# Updated installation cell source - NUCLEAR CLEAN APPROACH
 new_install_source = [
-    "import sys\n",
+    "# KAGGLE UNSLOTH NUCLEAR FIX 2026\n",
+    "import os, sys\n",
     "\n",
-    "# Step 1: Install compatible PyTorch versions FIRST\n",
-    "print(\"Step 1/3: Installing PyTorch 2.8.0 + torchvision 0.23.0...\")\n",
-    "!pip install -q torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu126 2>&1 | tail -5\n",
+    "# Nuclear clean - remove all conflicting packages\n",
+    "print(\"Step 1/4: Cleaning existing packages...\")\n",
+    "!pip uninstall -y torch torchvision torchaudio xformers unsloth transformers -q 2>&1 | tail -3\n",
+    "!pip cache purge -q\n",
     "\n",
-    "# Step 2: Install Unsloth (will use existing PyTorch)\n",
-    "print(\"\\nStep 2/3: Installing Unsloth (this takes 3-4 minutes)...\")\n",
-    "!pip install -q \"unsloth[kaggle-new] @ git+https://github.com/unslothai/unsloth.git\" 2>&1 | grep -v \"Requirement already satisfied\" | tail -20\n",
+    "# Kaggle stable versions (proven to work)\n",
+    "print(\"\\nStep 2/4: Installing PyTorch 2.5.1 (Kaggle stable)...\")\n",
+    "!pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 -q 2>&1 | tail -5\n",
     "\n",
-    "# Step 3: Install xformers compatible with torch 2.8.0\n",
-    "print(\"\\nStep 3/3: Installing xformers 0.0.28.post2...\")\n",
-    "!pip install -q xformers==0.0.28.post2 2>&1 | tail -10\n",
+    "# Unsloth + deps (no version conflicts)\n",
+    "print(\"\\nStep 3/4: Installing Unsloth (colab-new variant)...\")\n",
+    "!pip install \"unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git\" --no-deps -q 2>&1 | tail -10\n",
     "\n",
-    "print(\"\\n[OK] Installation complete!\\n\")\n",
+    "print(\"\\nStep 4/4: Installing dependencies...\")\n",
+    "!pip install xformers==0.0.28.post1 trl==0.9.6 peft accelerate bitsandbytes datasets -q 2>&1 | tail -5\n",
+    "\n",
+    "print(\"\\n\" + \"=\"*50)\n",
+    "print(\"[OK] CLEAN INSTALL COMPLETE!\")\n",
+    "print(\"=\"*50)\n",
     "\n",
     "# Verify versions\n",
     "import torch\n",
-    "import torchvision\n",
-    "import xformers\n",
+    "print(f\"\\n[OK] CUDA available: {torch.cuda.is_available()}\")\n",
     "print(f\"[OK] torch: {torch.__version__}\")\n",
-    "print(f\"[OK] torchvision: {torchvision.__version__}\")\n",
-    "print(f\"[OK] xformers: {xformers.__version__}\")"
+    "if torch.cuda.is_available():\n",
+    "    print(f\"[OK] GPU: {torch.cuda.get_device_name(0)}\")\n",
+    "\n",
+    "print(\"\\n[NEXT] Run the next cell to load the model!\")"
 ]
 
-# Find and update the installation cell (cell index 2, which is the first code cell)
+# Update cells
 for i, cell in enumerate(notebook['cells']):
-    if cell['cell_type'] == 'code' and i == 2:  # First code cell
+    # Update installation markdown (cell 1)
+    if cell['cell_type'] == 'markdown' and i == 1:
+        cell['source'] = install_markdown
+        print(f"[OK] Updated cell {i} (Installation markdown)")
+    
+    # Update installation code (cell 2)
+    if cell['cell_type'] == 'code' and i == 2:
         cell['source'] = new_install_source
-        print(f"[OK] Updated cell {i} (Installation cell)")
-        break
+        print(f"[OK] Updated cell {i} (Installation code)")
 
 # Save the updated notebook
 with open(notebook_path, 'w', encoding='utf-8') as f:
     json.dump(notebook, f, indent=4)
 
-print("[OK] Notebook updated successfully!")
+print("\n[OK] Notebook updated successfully!")
 print("\n[CHANGES]:")
-print("  - Pinned torch==2.8.0, torchvision==0.23.0, torchaudio==2.8.0")
-print("  - Added version verification at the end")
-print("  - Split installation into 3 clear steps")
+print("  - Nuclear clean approach (uninstall + cache purge)")
+print("  - torch 2.5.1 + torchvision 0.20.1 (Kaggle stable)")
+print("  - unsloth colab-new variant (optimized)")
+print("  - xformers 0.0.28.post1 (pre-built)")
+print("  - trl 0.9.6 pinned for compatibility")
