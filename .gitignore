@@ -66,3 +66,9 @@ Thumbs.db
 reports/
 *.log
 mcp_server.log
+
+# Temporary scripts (auto-generated)
+run_audit.py
+check_dead.py
+audit_results.txt
+*.bak
