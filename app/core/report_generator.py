@@ -42,6 +42,9 @@ class ReportGenerator:
             f.write(f"# Project Audit: {Path(project_path).name}\n")
             f.write(f"**Score:** {score}/100 → **Target: 90/100** (via 3 fixes)\n\n")
             
+            # 📊 TOOL EXECUTION SUMMARY (NEW - Full Visibility)
+            self._write_tool_execution_summary(f, tool_results)
+            
             # Self-Healing Status (if applicable)
             if 'self_healing' in tool_results:
                 self._write_self_healing_section(f, tool_results['self_healing'])
@@ -54,51 +57,55 @@ class ReportGenerator:
             
             f.write("---\n\n")
             
-            # Focused Structure
-            if 'structure' in tool_results:
-                self._write_enterprise_structure(f, tool_results['structure'])
+            # ===== MANDATORY SECTIONS (Always Visible) =====
             
-            # Duplicates (Grouped)
-            if 'duplication' in tool_results:
-                self._write_grouped_duplication(f, tool_results['duplication'])
+            # 📁 Project Structure (MANDATORY)
+            self._write_enterprise_structure(f, tool_results.get('structure', {}))
             
-            # Cleanup Commands
-            if 'cleanup' in tool_results:
-                self._write_cleanup_commands(f, tool_results['cleanup'])
+            # 🔒 Security Analysis - Bandit (MANDATORY)
+            self._write_mandatory_security(f, tool_results.get('security', {}))
             
-            # Recent Changes (Git)
-            if 'git' in tool_results:
-                self._write_recent_changes(f, tool_results['git'])
+            # 🎭 Duplicates (MANDATORY - Grouped)
+            self._write_grouped_duplication(f, tool_results.get('duplication', {}))
             
-            # Tests & Coverage
-            if 'tests' in tool_results:
-                self._write_enterprise_tests(f, tool_results['tests'])
+            # ☠️ Dead Code (MANDATORY)
+            self._write_mandatory_deadcode(f, tool_results.get('deadcode', {}))
             
-            # Security (CRITICAL - Always show)
-            if 'security' in tool_results:
-                if HAS_ENHANCED_SECTIONS:
-                    _write_security_section(f, tool_results['security'])
+            # 🧹 Cleanup Commands (MANDATORY)
+            self._write_cleanup_commands(f, tool_results.get('cleanup', {}))
+            
+            # 📝 Recent Changes - Git (MANDATORY)
+            self._write_recent_changes(f, tool_results.get('git', {}))
+            
+            # ✅ Tests & Coverage (MANDATORY)
+            self._write_enterprise_tests(f, tool_results.get('tests', {}))
+            
+            # 🔐 Secrets Detection (MANDATORY)
+            self._write_mandatory_secrets(f, tool_results.get('secrets', {}))
+            
+            # 📋 Gitignore (MANDATORY)
+            self._write_mandatory_gitignore(f, tool_results.get('gitignore', {}))
 
             f.write("---\n\n")
             f.write("## 🔍 Technical Details\n\n")
             
-            # Architecture section
-            if 'architecture' in tool_results:
-                self._write_architecture_section(f, tool_results['architecture'])
+            # 🏗️ Architecture section (MANDATORY)
+            self._write_architecture_section(f, tool_results.get('architecture', {}))
             
-            # Type coverage section
-            if 'typing' in tool_results:
-                if HAS_ENHANCED_SECTIONS:
-                    _write_typing_section(f, tool_results['typing'])
+            # 📝 Type coverage section (MANDATORY)
+            if HAS_ENHANCED_SECTIONS and 'typing' in tool_results:
+                _write_typing_section(f, tool_results['typing'])
+            else:
+                self._write_mandatory_typing(f, tool_results.get('typing', {}))
             
-            # Efficiency section
-            if 'efficiency' in tool_results:
-                self._write_efficiency_section(f, tool_results['efficiency'])
+            # ⚡ Efficiency section (MANDATORY)
+            self._write_efficiency_section(f, tool_results.get('efficiency', {}))
             
-            # Security section
-            if 'security' in tool_results:
-                if HAS_ENHANCED_SECTIONS:
-                    _write_security_section(f, tool_results['security'])
+            # 🧮 Complexity section (MANDATORY)
+            if HAS_ENHANCED_SECTIONS and 'complexity' in tool_results:
+                _write_complexity_section(f, tool_results['complexity'])
+            else:
+                self._write_mandatory_complexity(f, tool_results.get('complexity', {}))
         
         logger.info(f"Enterprise Report generated: {report_path}")
         return str(report_path)
@@ -159,8 +166,13 @@ class ReportGenerator:
         f.write("\n")
 
     def _write_enterprise_structure(self, f, data: Dict[str, Any]) -> None:
-        """Write a focused, filtered structure section."""
+        """Write a focused, filtered structure section - MANDATORY."""
         f.write("## 📁 CLEAN STRUCTURE (Actionable)\n")
+        
+        if not data:
+            f.write("⚠️ **Structure analysis did not run.** Check logs.\n\n")
+            return
+        
         if 'tree' in data:
             f.write("```\n")
             f.write(data['tree'])
@@ -170,12 +182,17 @@ class ReportGenerator:
         f.write("*Focusing on 80% code density zones. Filtered docs/, reports/, and scripts/ for clarity.*\n\n")
 
     def _write_grouped_duplication(self, f, data: Dict[str, Any]) -> None:
-        """Write duplication section grouped by file with actionable fixes."""
+        """Write duplication section grouped by file with actionable fixes - MANDATORY."""
         f.write("## 🎭 DUPLICATES (Grouped + Actionable)\n")
+        
+        if not data:
+            f.write("⚠️ **Duplication analysis did not run.** Check logs.\n\n")
+            return
+        
         duplicates = data.get('duplicates', [])
         
         if not duplicates:
-            f.write("✅ No significant duplication found.\n\n")
+            f.write("✅ **Clean:** No significant code duplication found.\n\n")
             return
 
         # Group by file
@@ -208,8 +225,13 @@ class ReportGenerator:
         f.write("\n")
 
     def _write_cleanup_commands(self, f, data: Dict[str, Any]) -> None:
-        """Write cleanup section with copy-paste commands."""
+        """Write cleanup section with copy-paste commands - MANDATORY."""
         f.write(f"## 🧹 CLEANUP READY COMMANDS\n")
+        
+        if not data:
+            f.write("⚠️ **Cleanup analysis did not run.** Check logs.\n\n")
+            return
+        
         items = data.get('items', [])
         total_size = data.get('total_size_mb', 0)
         
@@ -235,11 +257,15 @@ class ReportGenerator:
         f.write("\n")
     
     def _write_recent_changes(self, f, data: Dict[str, Any]) -> None:
-        """Write recent git changes section."""
+        """Write recent git changes section - MANDATORY."""
         f.write(f"## 📝 RECENT CHANGES\n\n")
         
+        if not data:
+            f.write("⚠️ **Git analysis did not run.** Check logs.\n\n")
+            return
+        
         if not data.get('has_git', False):
-            f.write("*Not a git repository*\n\n")
+            f.write("ℹ️ *Not a git repository*\n\n")
             return
         
         # Last commit info
@@ -312,13 +338,18 @@ class ReportGenerator:
             f.write("\n")
 
     def _write_enterprise_tests(self, f, data: Dict[str, Any]) -> None:
-        """Write tests section with clear coverage status and detailed breakdown."""
+        """Write tests section with clear coverage status and detailed breakdown - MANDATORY."""
+        f.write(f"## ✅ TESTS\n\n")
+        
+        if not data:
+            f.write("⚠️ **Tests analysis did not run.** Check logs.\n\n")
+            return
+        
         coverage = data.get('coverage_percent', -1)
         warning = data.get('warning', '')
         total_files = data.get('total_test_files', 0)
         
         # Header with file count and coverage
-        f.write(f"## ✅ TESTS\n\n")
         f.write(f"**Files Found:** {total_files} (glob test_*.py, *_test.py)\n")
         
         # Coverage status
@@ -608,3 +639,304 @@ class ReportGenerator:
         f.write("```gitignore\n")
         f.write("\n".join(suggestions))
         f.write("\n```\n\n")
+    
+    # ===== FULL VISIBILITY MODE METHODS =====
+    
+    def _write_tool_execution_summary(self, f, tool_results: Dict[str, Any]) -> None:
+        """Write comprehensive tool execution summary table - ALL tools shown."""
+        f.write("## 📊 Tool Execution Summary\n\n")
+        f.write("| Tool | Status | Details |\n")
+        f.write("|------|--------|----------|\n")
+        
+        # Define all 13 tools in execution order
+        tools_config = [
+            ('structure', '📁 Structure', self._get_structure_status),
+            ('architecture', '🏗️ Architecture', self._get_architecture_status),
+            ('typing', '📝 Type Coverage', self._get_typing_status),
+            ('complexity', '🧮 Complexity', self._get_complexity_status),
+            ('duplication', '🎭 Duplication', self._get_duplication_status),
+            ('deadcode', '☠️ Dead Code', self._get_deadcode_status),
+            ('efficiency', '⚡ Efficiency', self._get_efficiency_status),
+            ('cleanup', '🧹 Cleanup', self._get_cleanup_status),
+            ('secrets', '🔐 Secrets', self._get_secrets_status),
+            ('security', '🔒 Security (Bandit)', self._get_security_status),
+            ('tests', '✅ Tests', self._get_tests_status),
+            ('gitignore', '📋 Gitignore', self._get_gitignore_status),
+            ('git', '📝 Git Status', self._get_git_status),
+        ]
+        
+        for key, name, status_func in tools_config:
+            data = tool_results.get(key, {})
+            status, details = status_func(data)
+            f.write(f"| {name} | {status} | {details} |\n")
+        
+        f.write("\n")
+    
+    # Status helper methods for each tool
+    def _get_structure_status(self, data: Dict[str, Any]) -> tuple:
+        """Get structure tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        files = data.get('total_files', 0)
+        dirs = data.get('total_directories', 0)
+        return "ℹ️ Info", f"{files} files, {dirs} dirs"
+    
+    def _get_architecture_status(self, data: Dict[str, Any]) -> tuple:
+        """Get architecture tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        issues = len(data.get('issues', []))
+        if issues == 0:
+            return "✅ Pass", "No architectural issues"
+        return "⚠️ Issues", f"{issues} issue(s) found"
+    
+    def _get_typing_status(self, data: Dict[str, Any]) -> tuple:
+        """Get typing tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        coverage = data.get('coverage_percent', -1)
+        untyped = data.get('untyped_functions', 0)
+        if coverage >= 0:
+            return "ℹ️ Info", f"{coverage}% typed, {untyped} untyped funcs"
+        return "✅ Pass", "Type checking complete"
+    
+    def _get_complexity_status(self, data: Dict[str, Any]) -> tuple:
+        """Get complexity tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        issues = len(data.get('issues', []))
+        if issues == 0:
+            return "✅ Pass", "No high-complexity functions"
+        return "⚠️ Issues", f"{issues} complex function(s)"
+    
+    def _get_duplication_status(self, data: Dict[str, Any]) -> tuple:
+        """Get duplication tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        dups = len(data.get('duplicates', []))
+        if dups == 0:
+            return "✅ Pass", "No code duplication found"
+        return "⚠️ Issues", f"{dups} duplicate(s) found"
+    
+    def _get_deadcode_status(self, data: Dict[str, Any]) -> tuple:
+        """Get dead code tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        dead_funcs = len(data.get('dead_functions', []))
+        unused_imports = len(data.get('unused_imports', []))
+        total = dead_funcs + unused_imports
+        if total == 0:
+            return "✅ Pass", "No dead code detected"
+        return "⚠️ Issues", f"{dead_funcs} funcs, {unused_imports} imports"
+    
+    def _get_efficiency_status(self, data: Dict[str, Any]) -> tuple:
+        """Get efficiency tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        issues = len(data.get('issues', []))
+        if issues == 0:
+            return "✅ Pass", "No efficiency issues"
+        return "⚠️ Issues", f"{issues} issue(s) found"
+    
+    def _get_cleanup_status(self, data: Dict[str, Any]) -> tuple:
+        """Get cleanup tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        items = len(data.get('items', []))
+        size_mb = data.get('total_size_mb', 0)
+        if items == 0:
+            return "✅ Pass", "Environment is clean"
+        return "ℹ️ Info", f"{items} item(s), {size_mb:.1f}MB"
+    
+    def _get_secrets_status(self, data: Dict[str, Any]) -> tuple:
+        """Get secrets tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        secrets = len(data.get('secrets', []))
+        if secrets == 0:
+            return "✅ Pass", "No secrets detected"
+        return "❌ Fail", f"{secrets} potential secret(s)"
+    
+    def _get_security_status(self, data: Dict[str, Any]) -> tuple:
+        """Get security (Bandit) tool status."""
+        if not data:
+            return "⚠️ Skip", "Security scan did not run"
+        if 'error' in data:
+            return "❌ Fail", "Bandit execution failed"
+        issues = len(data.get('issues', []))
+        files_scanned = data.get('files_scanned', 0)
+        if issues == 0:
+            return "✅ Pass", f"Scanned {files_scanned} files, 0 issues"
+        return "⚠️ Issues", f"{issues} vulnerability(ies) in {files_scanned} files"
+    
+    def _get_tests_status(self, data: Dict[str, Any]) -> tuple:
+        """Get tests tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        coverage = data.get('coverage_percent', -1)
+        total_files = data.get('total_test_files', 0)
+        if coverage < 0:
+            return "❌ Fail", "Coverage calculation failed"
+        return "ℹ️ Info", f"{total_files} test files, {coverage}% coverage"
+    
+    def _get_gitignore_status(self, data: Dict[str, Any]) -> tuple:
+        """Get gitignore tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        suggestions = len(data.get('suggestions', []))
+        if suggestions == 0:
+            return "✅ Pass", "Gitignore is complete"
+        return "ℹ️ Info", f"{suggestions} suggestion(s)"
+    
+    def _get_git_status(self, data: Dict[str, Any]) -> tuple:
+        """Get git tool status."""
+        if not data:
+            return "⚠️ Skip", "Tool did not run"
+        if not data.get('has_git', False):
+            return "ℹ️ Info", "Not a git repository"
+        status = data.get('status', 'Unknown')
+        days = data.get('days_since_commit', 0)
+        return "ℹ️ Info", f"{status}, {days} days since commit"
+    
+    # ===== MANDATORY SECTION WRITERS =====
+    
+    def _write_mandatory_security(self, f, data: Dict[str, Any]) -> None:
+        """MANDATORY Security section - always shows execution status."""
+        f.write("## 🔒 Security Analysis (Bandit)\n\n")
+        
+        if not data:
+            f.write("⚠️ **Security scan did not run.** Check logs or tool configuration.\n\n")
+            return
+        
+        if 'error' in data:
+            f.write(f"❌ **Bandit execution failed:** {data.get('error', 'Unknown error')}\n\n")
+            return
+        
+        issues = data.get('issues', [])
+        files_scanned = data.get('files_scanned', 0)
+        
+        if not issues:
+            f.write(f"✅ **Security Scan Complete:** No known vulnerabilities found in {files_scanned} scanned files.\n\n")
+            return
+        
+        # Show issues
+        f.write(f"⚠️ **{len(issues)} security issue(s) found in {files_scanned} files:**\n\n")
+        for issue in issues[:10]:  # Limit to 10
+            severity = issue.get('severity', 'unknown').upper()
+            icon = "🔴" if severity in ["HIGH", "CRITICAL"] else "🟡" if severity == "MEDIUM" else "🔵"
+            f.write(f"{icon} **{severity}**: {issue.get('type', 'Unknown')} in `{issue.get('file', '')}:{issue.get('line', '')}`\n")
+            f.write(f"   - {issue.get('description', '')}\n\n")
+        
+        if len(issues) > 10:
+            f.write(f"*...and {len(issues) - 10} more issues*\n\n")
+    
+    def _write_mandatory_deadcode(self, f, data: Dict[str, Any]) -> None:
+        """MANDATORY Dead Code section - always shows execution status."""
+        f.write("## ☠️ Dead Code Detection\n\n")
+        
+        if not data:
+            f.write("⚠️ **Dead code scan did not run.** Check logs.\n\n")
+            return
+        
+        dead_functions = data.get('dead_functions', [])
+        unused_imports = data.get('unused_imports', [])
+        total = len(dead_functions) + len(unused_imports)
+        
+        if total == 0:
+            f.write("✅ **Clean:** No dead code detected. All functions and imports are used.\n\n")
+            return
+        
+        f.write(f"⚠️ **{total} dead code item(s) found:**\n\n")
+        
+        if dead_functions:
+            f.write(f"**Unused Functions ({len(dead_functions)}):**\n")
+            for func in dead_functions[:10]:
+                f.write(f"- `{func.get('file', '')}:{func.get('name', '')}()` - {func.get('references', 0)} references\n")
+            if len(dead_functions) > 10:
+                f.write(f"\n*...and {len(dead_functions) - 10} more*\n")
+            f.write("\n")
+        
+        if unused_imports:
+            f.write(f"**Unused Imports ({len(unused_imports)}):**\n")
+            for imp in unused_imports[:10]:
+                f.write(f"- `{imp.get('file', '')}`: {imp.get('import', '')}\n")
+            if len(unused_imports) > 10:
+                f.write(f"\n*...and {len(unused_imports) - 10} more*\n")
+            f.write("\n")
+    
+    def _write_mandatory_secrets(self, f, data: Dict[str, Any]) -> None:
+        """MANDATORY Secrets section - always shows execution status."""
+        f.write("## 🔐 Secrets Detection\n\n")
+        
+        if not data:
+            f.write("⚠️ **Secrets scan did not run.** Check logs.\n\n")
+            return
+        
+        secrets = data.get('secrets', [])
+        
+        if not secrets:
+            f.write("✅ **Clean:** No potential secrets or credentials detected in codebase.\n\n")
+            return
+        
+        f.write(f"❌ **{len(secrets)} potential secret(s) found:**\n\n")
+        for secret in secrets:
+            f.write(f"- `{secret.get('file', '')}:{secret.get('line', '')}` - {secret.get('type', 'Unknown')}\n")
+        f.write("\n⚠️ **Action Required:** Review and move secrets to environment variables or secret management.\n\n")
+    
+    def _write_mandatory_gitignore(self, f, data: Dict[str, Any]) -> None:
+        """MANDATORY Gitignore section - always shows execution status."""
+        f.write("## 📋 Gitignore Analysis\n\n")
+        
+        if not data:
+            f.write("⚠️ **Gitignore analysis did not run.** Check logs.\n\n")
+            return
+        
+        suggestions = data.get('suggestions', [])
+        
+        if not suggestions:
+            f.write("✅ **Complete:** Gitignore covers all common patterns.\n\n")
+            return
+        
+        f.write(f"ℹ️ **{len(suggestions)} recommendation(s):**\n\n")
+        f.write("```gitignore\n")
+        f.write("\n".join(suggestions))
+        f.write("\n```\n\n")
+    
+    def _write_mandatory_typing(self, f, data: Dict[str, Any]) -> None:
+        """MANDATORY Typing section - always shows execution status."""
+        f.write("### 📝 Type Coverage\n\n")
+        
+        if not data:
+            f.write("⚠️ **Type analysis did not run.** Check logs.\n\n")
+            return
+        
+        coverage = data.get('coverage_percent', -1)
+        untyped = data.get('untyped_functions', 0)
+        
+        if coverage >= 0:
+            f.write(f"**Coverage:** {coverage}%\n")
+            f.write(f"**Untyped Functions:** {untyped}\n\n")
+        else:
+            f.write("✅ **Type checking complete.**\n\n")
+    
+    def _write_mandatory_complexity(self, f, data: Dict[str, Any]) -> None:
+        """MANDATORY Complexity section - always shows execution status."""
+        f.write("### 🧮 Cyclomatic Complexity\n\n")
+        
+        if not data:
+            f.write("⚠️ **Complexity analysis did not run.** Check logs.\n\n")
+            return
+        
+        issues = data.get('issues', [])
+        
+        if not issues:
+            f.write("✅ **Clean:** No high-complexity functions detected.\n\n")
+            return
+        
+        f.write(f"⚠️ **{len(issues)} complex function(s):**\n\n")
+        for issue in issues[:10]:
+            f.write(f"- `{issue.get('function', 'unknown')}` in `{issue.get('file', '')}` - Complexity: {issue.get('complexity', 0)}\n")
+        if len(issues) > 10:
+            f.write(f"\n*...and {len(issues) - 10} more*\n")
+        f.write("\n")
+

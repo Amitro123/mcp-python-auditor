@@ -65,7 +65,12 @@ def validate_dataset(dataset_path: Path) -> Dict[str, Any]:
     }
 
 if __name__ == "__main__":
-    dataset_path = Path("auditor_tool/data/audit_dataset.jsonl")
+    import sys
+    
+    if len(sys.argv) > 1:
+        dataset_path = Path(sys.argv[1])
+    else:
+        dataset_path = Path("data/audit_dataset.jsonl")
     
     print("🔍 Validating audit dataset...")
     print(f"📁 Path: {dataset_path}")

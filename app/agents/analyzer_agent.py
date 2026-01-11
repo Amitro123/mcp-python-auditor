@@ -51,6 +51,13 @@ class AnalyzerAgent:
         start_time = time.time()
         path = Path(project_path)
         
+        # 🎯 SMART ROOT DETECTION (NEW)
+        original_path = path
+        path = self._resolve_project_root(path)
+        
+        if path != original_path:
+            logger.info(f"⚠️ Detected project root at '{path.relative_to(original_path.parent)}'. Switching context...")
+        
         # Generate meaningful report ID from project name and timestamp
         project_name = path.name
         # Sanitize: replace spaces and special chars with underscores
@@ -58,7 +65,7 @@ class AnalyzerAgent:
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         report_id = f"audit_{sanitized_name}_{timestamp}"
         
-        logger.info(f"Starting analysis of {project_path} (report_id: {report_id})")
+        logger.info(f"Starting analysis of {path} (report_id: {report_id})")
         
         # Calculate project stats (py_files + size)
         project_stats = self._calculate_project_stats(path)
@@ -168,7 +175,7 @@ class AnalyzerAgent:
                 
                 report_path = self.report_generator.generate_report(
                     report_id=report_id,
-                    project_path=project_path,
+                    project_path=str(path),  # Use resolved path
                     score=score,
                     tool_results=results_dict,
                     timestamp=datetime.now()
@@ -181,7 +188,7 @@ class AnalyzerAgent:
         
         return AuditResult(
             report_id=report_id,
-            project_path=project_path,
+            project_path=str(path),  # Use resolved path, not original
             score=score,
             tool_results=tool_results,
             report_path=report_path,
@@ -335,20 +342,50 @@ class AnalyzerAgent:
         py_files = 0
         total_size = 0
         
+        # 🛡️ SAFETY FILTER: Ignore Antigravity/System folders (HARDCODED)
+        SYSTEM_FOLDERS = {
+            '.gemini',
+            'antigravity',
+            'brain',
+            'conversations',
+            'scratch',  # Will be allowed if it's the actual project root
+            '.vscode',
+            '.idea',
+            'node_modules',
+            '.venv',
+            'venv',
+            '__pycache__',
+            '.git',
+            '.pytest_cache',
+            'browser_recordings',
+            'code_tracker',
+            'context_state',
+            'implicit',
+            'playground'
+        }
+        
         try:
             for item in path.rglob('*'):
+                # Skip system/wrapper directories
+                if any(excluded in item.parts for excluded in SYSTEM_FOLDERS):
+                    # BUT: Allow 'scratch' if it's the actual project root
+                    if 'scratch' in item.parts:
+                        # Check if 'scratch' is exactly the path we're scanning
+                        if path.name != 'scratch':
+                            continue
+                    else:
+                        continue
+                
                 if item.is_file():
                     # Count Python files
                     if item.suffix == '.py':
                         py_files += 1
                     
-                    # Calculate total size (excluding common large dirs)
-                    if not any(exclude in item.parts for exclude in 
-                              ['node_modules', '.venv', 'venv', '__pycache__', '.git']):
-                        try:
-                            total_size += item.stat().st_size
-                        except (OSError, PermissionError):
-                            pass
+                    # Calculate total size
+                    try:
+                        total_size += item.stat().st_size
+                    except (OSError, PermissionError):
+                        pass
         except Exception as e:
             logger.warning(f"Error calculating project stats: {e}")
         
@@ -384,4 +421,62 @@ class AnalyzerAgent:
         
         # Skip if exceeds either threshold
         return py_files > MAX_PY_FILES_HEAVY or size_mb > MAX_SIZE_MB_HEAVY
+    
+    def _resolve_project_root(self, path: Path) -> Path:
+        """
+        Smart Root Detection: Auto-detect actual project directory.
+        
+        If the given path doesn't contain project markers (pyproject.toml, 
+        requirements.txt, .git), check immediate subdirectories for these markers.
+        
+        Args:
+            path: The initial path provided by the user
+            
+        Returns:
+            Resolved project root path (may be a subdirectory)
+        """
+        # Project markers (in order of preference)
+        PROJECT_MARKERS = [
+            'pyproject.toml',
+            'setup.py',
+            'requirements.txt',
+            '.git',
+            'Cargo.toml',  # Rust
+            'package.json',  # JavaScript/TypeScript
+        ]
+        
+        # Check if current path has project markers
+        def has_project_markers(p: Path) -> bool:
+            """Check if path contains any project markers."""
+            for marker in PROJECT_MARKERS:
+                if (p / marker).exists():
+                    return True
+            return False
+        
+        # If current path has markers, use it
+        if has_project_markers(path):
+            logger.info(f"✅ Project markers found in '{path.name}'")
+            return path
+        
+        # Otherwise, check immediate subdirectories
+        logger.info(f"⚠️ No project markers in '{path}'. Scanning subdirectories...")
+        
+        try:
+            subdirs = [d for d in path.iterdir() if d.is_dir() and not d.name.startswith('.')]
+            
+            for subdir in subdirs:
+                if has_project_markers(subdir):
+                    logger.info(f"✅ Found project root: '{subdir.name}'")
+                    return subdir
+            
+            # If no subdirectories have markers, return original path
+            logger.warning(
+                f"⚠️ No project markers found in '{path}' or subdirectories. "
+                f"Proceeding with original path."
+            )
+            return path
+            
+        except (PermissionError, OSError) as e:
+            logger.warning(f"Error scanning subdirectories: {e}. Using original path.")
+            return path
 
