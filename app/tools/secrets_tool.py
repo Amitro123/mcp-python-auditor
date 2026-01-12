@@ -80,8 +80,8 @@ class SecretsTool(BaseTool):
                                 logger.debug(f"Skipping secrets in ignored directory: {file_path}")
                                 continue
 
-                            # FILTER: Ignore dependencies and venvs explicitly
-                            if "external_libs" in file_path or ".venv" in file_path:
+                            # FILTER: Ignore dependencies, venvs, and test files explicitly
+                            if "external_libs" in file_path or ".venv" in file_path or "tests" in file_path:
                                 continue
                             
                             for finding in findings:

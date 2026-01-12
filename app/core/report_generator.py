@@ -767,8 +767,17 @@ class ReportGenerator:
             return "⚠️ Skip", "Security scan did not run"
         if 'error' in data:
             return "❌ Fail", "Bandit execution failed"
-        issues = len(data.get('issues', []))
-        files_scanned = data.get('files_scanned', 0)
+        
+        # Handle nested structure: SecurityTool returns code_security with bandit results
+        if "code_security" in data:
+            bandit_data = data["code_security"]
+            files_scanned = bandit_data.get('files_scanned', 0)
+            issues = len(bandit_data.get('issues', []))
+        else:
+            # Legacy/direct structure
+            files_scanned = data.get('files_scanned', 0)
+            issues = len(data.get('issues', []))
+        
         if issues == 0:
             return "✅ Pass", f"Scanned {files_scanned} files, 0 issues"
         return "⚠️ Issues", f"{issues} vulnerability(ies) in {files_scanned} files"
