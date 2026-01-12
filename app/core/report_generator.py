@@ -825,8 +825,15 @@ class ReportGenerator:
             f.write(f"❌ **Bandit execution failed:** {data.get('error', 'Unknown error')}\n\n")
             return
         
-        issues = data.get('issues', [])
-        files_scanned = data.get('files_scanned', 0)
+        # Handle nested structure: SecurityTool returns code_security with bandit results
+        if "code_security" in data:
+            bandit_data = data["code_security"]
+            issues = bandit_data.get('issues', [])
+            files_scanned = bandit_data.get('files_scanned', 0)
+        else:
+            # Legacy/direct structure
+            issues = data.get('issues', [])
+            files_scanned = data.get('files_scanned', 0)
         
         if not issues:
             f.write(f"✅ **Security Scan Complete:** No known vulnerabilities found in {files_scanned} scanned files.\n\n")
