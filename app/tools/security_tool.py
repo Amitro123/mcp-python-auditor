@@ -68,12 +68,14 @@ class SecurityTool(BaseTool):
     def _run_bandit(self, project_path: Path) -> Dict[str, Any]:
         """Run Bandit for code security analysis."""
         try:
-            # Normalize excludes to use forward slashes (works better cross-platform)
-            excludes_str = ",".join([d.replace("\\", "/") for d in sorted(list(self.IGNORED_DIRECTORIES))])
+            # Normalize excludes - ensure we cover standard ignores
+            # Use strict list from requirements plus class excludes
+            exclude_list = set(list(self.IGNORED_DIRECTORIES) + ["tests", ".venv", "venv", "external_libs", ".git", "__pycache__"])
+            excludes_str = ",".join([d.replace("\\", "/") for d in sorted(list(exclude_list))])
             
             cmd = [
                 sys.executable, "-m", "bandit",
-                "-r", ".",  # Scan current directory (relative path)
+                "-r", ".",  # Scan recursively
                 "-f", "json",
                 "-x", excludes_str,
                 "-ll"
@@ -86,7 +88,7 @@ class SecurityTool(BaseTool):
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=120,  # Reduced from 600s
+                timeout=120,
                 errors='replace'
             )
             
@@ -109,9 +111,15 @@ class SecurityTool(BaseTool):
         
         try:
             data = json.loads(stdout)
+            
+            # Extract metrics for files scanned
+            metrics = data.get("metrics", {})
+            total_files = sum(m.get("loc", 0) for m in metrics.values()) if metrics else 0
+            
+            raw_issues = data.get('results', [])
             issues = []
             
-            for result in data.get('results', []):
+            for result in raw_issues:
                 issues.append({
                     "file": result.get('filename', ''),
                     "line": result.get('line_number', 0),
@@ -124,6 +132,7 @@ class SecurityTool(BaseTool):
             return {
                 "issues": issues,
                 "total_issues": len(issues),
+                "files_scanned": total_files,
                 "skipped": False
             }
         

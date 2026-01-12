@@ -225,15 +225,17 @@ class TestsTool(BaseTool):
             # Use the provided Python interpreter (venv_python is now always set)
             python_cmd = str(venv_python)
             
-            # Check if using current interpreter
-            warning = None
-            if python_cmd == sys.executable:
-                logger.info("Using current interpreter for tests.")
-            else:
-                logger.info(f"Using venv Python: {python_cmd}")
-            
             # Always include coverage flags
-            cmd = [python_cmd, '-m', 'pytest', '--cov=.', '--cov-report=term-missing', '--tb=no', '-q', '--color=no']
+            cmd = [
+                python_cmd, '-m', 'pytest', 
+                str(project_path),
+                '--cov=.', 
+                '--cov-report=term-missing', 
+                '-q',
+                '--color=no'
+            ]
+            
+            logger.info(f"Running coverage command: {' '.join(cmd)}")
             
             # Try running coverage with 3-minute timeout for heavy E2E tests
             result = subprocess.run(
@@ -245,6 +247,8 @@ class TestsTool(BaseTool):
                 env=env
             )
             
+            output = result.stdout + "\n" + result.stderr
+            
             # Check for common errors
             if "No module named" in result.stderr:
                 # Check specifically for pytest-cov missing
@@ -252,63 +256,27 @@ class TestsTool(BaseTool):
                     error_msg = "⚠️ MISSING PREREQUISITE: 'pytest-cov' is not installed in the target project. Coverage cannot be calculated."
                     logger.warning(error_msg)
                     return 0, error_msg, ""
-                else:
-                    error_msg = "Could not run coverage. Make sure 'pytest-cov' is installed in your project environment."
-                    logger.warning(error_msg)
-                    return 0, error_msg, ""
             
-            # Allow exit code 0 (Success), 1 (Tests Failed), 2 (Collection Errors), 5 (No Tests Collected)
-            if result.returncode in [0, 1, 2, 5]:
-                # Combine stdout and stderr as coverage might be in either
-                combined_output = result.stdout + "\n" + result.stderr
-                
-                # Extract the coverage table using regex (more robust)
-                coverage_table = ""
-                coverage_match = re.search(r'(Name\s+Stmts\s+Miss.*?TOTAL.*?\d+%)', combined_output, re.DOTALL)
-                
-                if coverage_match:
-                    coverage_table = coverage_match.group(1).strip()
-                else:
-                    # Fallback: try line-by-line extraction
-                    in_table = False
-                    table_lines = []
-                    
-                    for line in combined_output.splitlines():
-                        # Start capturing when we see the coverage table header
-                        if line.strip().startswith('Name') and 'Stmts' in line:
-                            in_table = True
-                        
-                        if in_table:
-                            table_lines.append(line)
-                            
-                            # Stop after TOTAL line
-                            if 'TOTAL' in line:
-                                break
-                    
-                    if table_lines:
-                        coverage_table = '\n'.join(table_lines)
-                
-                # Parse coverage percentage from combined output
-                # Look for "TOTAL" line and extract percentage (robust to warnings/spacing)
-                for line in result.stdout.splitlines():
-                    if 'TOTAL' in line:
-                        # Match TOTAL followed by any content, then capture final percentage
-                        # This handles cases like: "TOTAL  2371  1923  19%"
-                        match = re.search(r'TOTAL\s+.*?\s+(\d+)%', line)
-                        if match:
-                            coverage_pct = int(match.group(1))
-                            logger.info(f"Coverage: {coverage_pct}%")
-                            return coverage_pct, warning, coverage_table
+            # Regex to find "TOTAL ... 78%"
+            # Matches: TOTAL   100   20   80%
+            match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
+            coverage_pct = int(match.group(1)) if match else 0
+            
+            # Extract the coverage table for the report
+            coverage_table = ""
+            coverage_match = re.search(r'(Name\s+Stmts\s+Miss.*?TOTAL.*?\d+%)', output, re.DOTALL)
+            if coverage_match:
+                coverage_table = coverage_match.group(1).strip()
+            # If no table found, take last 300 chars as raw output
+            elif coverage_pct == 0:
+                 coverage_table = output[-300:]
+
+            return coverage_pct, None, coverage_table
         
         except subprocess.TimeoutExpired:
-            logger.warning("Coverage analysis timed out (180s limit)")
-            return 0, "Warning: Coverage analysis timed out (180s limit)", ""
-        except FileNotFoundError:
-            logger.debug("coverage or pytest not available")
-            return 0, "Warning: coverage or pytest not available", ""
+            logger.warning("Coverage analysis timed out (300s limit)")
+            return 0, "Warning: Coverage analysis timed out", ""
         except Exception as e:
             logger.debug(f"Coverage analysis failed: {e}")
             return 0, f"Warning: Coverage analysis failed - {str(e)}", ""
-        
-        return 0, "Warning: Coverage analysis failed", ""
 
