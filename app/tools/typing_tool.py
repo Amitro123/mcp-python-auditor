@@ -34,10 +34,8 @@ class TypingTool(BaseTool):
             partially_typed = []
             untyped_functions = []
             
-            for py_file in project_path.rglob("*.py"):
-                if any(p in py_file.parts for p in ['__pycache__', '.venv', 'venv', 'test']):
-                    continue
-                
+            # Use centralized file walker from BaseTool
+            for py_file in self.walk_project_files(project_path):
                 file_results = self._analyze_file(py_file, project_path)
                 all_functions.extend(file_results['all'])
                 typed_functions.extend(file_results['typed'])

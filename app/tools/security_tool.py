@@ -68,14 +68,25 @@ class SecurityTool(BaseTool):
     def _run_bandit(self, project_path: Path) -> Dict[str, Any]:
         """Run Bandit for code security analysis."""
         try:
-            # Use centralized exclusion config
-            excludes = get_analysis_excludes_comma()
+            # Normalize excludes to use forward slashes (works better cross-platform)
+            excludes_str = ",".join([d.replace("\\", "/") for d in sorted(list(self.IGNORED_DIRECTORIES))])
+            
+            cmd = [
+                sys.executable, "-m", "bandit",
+                "-r", ".",  # Scan current directory (relative path)
+                "-f", "json",
+                "-x", excludes_str,
+                "-ll"
+            ]
+            
+            logger.debug(f"Running bandit with excludes: {excludes_str[:100]}...")
+            
             result = subprocess.run(
-                [sys.executable, '-m', 'bandit', '-r', str(project_path), '-f', 'json', '--exclude', excludes, '-ll', '--quiet'],
+                cmd,
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=600,
+                timeout=120,  # Reduced from 600s
                 errors='replace'
             )
             

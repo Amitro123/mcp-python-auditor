@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # Performance configuration
 MAX_CONCURRENT_TOOLS = 3  # Semaphore limit
-MAX_TOOL_TIMEOUT = 45  # seconds per tool
+MAX_TOOL_TIMEOUT = 120  # seconds per tool (increased for bandit)
 MAX_PY_FILES_HEAVY = 200  # Skip heavy tools above this
 MAX_SIZE_MB_HEAVY = 100  # Skip heavy tools above this size
 

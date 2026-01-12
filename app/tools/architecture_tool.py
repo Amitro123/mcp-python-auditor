@@ -102,7 +102,8 @@ class ArchitectureTool(BaseTool):
         
         # Look for FastAPI imports in Python files
         has_fastapi = False
-        for py_file in path.rglob("*.py"):
+        # Use centralized file walker from BaseTool
+        for py_file in self.walk_project_files(path):
             if self._file_contains_fastapi(py_file):
                 has_fastapi = True
                 break
@@ -147,10 +148,8 @@ class ArchitectureTool(BaseTool):
         import_graph = {}
         
         # Build import graph
-        for py_file in path.rglob("*.py"):
-            if any(p in py_file.parts for p in ['__pycache__', '.venv', 'venv']):
-                continue
-            
+        # Use centralized file walker from BaseTool
+        for py_file in self.walk_project_files(path):
             try:
                 imports = self._extract_imports(py_file)
                 relative_path = str(py_file.relative_to(path))
@@ -177,10 +176,8 @@ class ArchitectureTool(BaseTool):
         """Check for proper separation of concerns."""
         issues = []
         
-        for py_file in path.rglob("*.py"):
-            if any(p in py_file.parts for p in ['__pycache__', '.venv', 'test']):
-                continue
-            
+        # Use centralized file walker from BaseTool
+        for py_file in self.walk_project_files(path):
             try:
                 with open(py_file, 'r', encoding='utf-8') as f:
                     tree = ast.parse(f.read())

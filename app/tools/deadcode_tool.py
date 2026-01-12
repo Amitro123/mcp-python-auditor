@@ -38,8 +38,15 @@ class DeadcodeTool(BaseTool):
             # Exit code 1: Dead code found (Valid success for us)
             # Other codes: Error
             try:
+                # Build command with exclusions from centralized blacklist
+                cmd = [sys.executable, '-m', 'vulture', str(project_path), '--min-confidence', '80']
+                
+                # Add each ignored directory as exclusion
+                for ignored_dir in self.IGNORED_DIRECTORIES:
+                    cmd.extend(['--exclude', ignored_dir])
+                
                 result = subprocess.run(
-                    [sys.executable, '-m', 'vulture', str(project_path), '--min-confidence', '80'],
+                    cmd,
                     cwd=project_path,
                     capture_output=True,
                     text=True,

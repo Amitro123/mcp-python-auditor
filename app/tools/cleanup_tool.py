@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Dict, Any, List
 import os
 from app.core.base_tool import BaseTool
-from app.core.config import CLEANUP_EXCLUDES, ANALYSIS_EXCLUDES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -74,22 +73,29 @@ class CleanupTool(BaseTool):
                 # Check if current directory matches any cache pattern
                 root_name = Path(root).name
                 
-                # Skip directories from CLEANUP_EXCLUDES (system files)
-                dirs[:] = [d for d in dirs if d not in CLEANUP_EXCLUDES]
-                
+                # Check for cache directories BEFORE we filter them out of recursion
                 for pattern in cache_patterns:
                     if pattern in dirs:
                         # Found a cache directory - calculate its size
                         cache_path = Path(root) / pattern
                         size_bytes = self._get_dir_size(cache_path)
+                        # We can still rglob inside it manually for stats
                         file_count = sum(1 for _ in cache_path.rglob('*') if _.is_file())
                         
                         cache_found[pattern]['files'] += file_count
                         cache_found[pattern]['size'] += size_bytes
-                        
-                        # CRITICAL: Remove from dirs to prevent recursion
-                        # Use slice assignment to modify in-place (required for os.walk)
-                        dirs[:] = [d for d in dirs if d != pattern]
+                
+                # Skip directories from centralized IGNORED_DIRECTORIES for recursion
+                # This prevents scanning into virtual envs, site-packages, etc.
+                # BUT we must manually exclude the cache patterns we just found so we don't recurse into them
+                dirs[:] = [
+                    d for d in dirs 
+                    if d not in self.IGNORED_DIRECTORIES or d in cache_patterns
+                ]
+                
+                # Now explicitly remove cache patterns from recursion to avoid double counting 
+                # or descending into things we just marked for deletion
+                dirs[:] = [d for d in dirs if d not in cache_patterns]
             
             # Add grouped cache summaries
             for pattern, data in cache_found.items():
@@ -109,7 +115,8 @@ class CleanupTool(BaseTool):
                     # File pattern
                     ext = pattern[1:]
                     for file in project_path.rglob(f'*{ext}'):
-                        if file.is_file():
+                        # Skip files in ignored directories
+                        if file.is_file() and not any(p in file.parts for p in self.IGNORED_DIRECTORIES):
                             size_mb = file.stat().st_size / (1024 * 1024)
                             items.append({
                                 "path": str(file.relative_to(project_path)),
@@ -120,7 +127,8 @@ class CleanupTool(BaseTool):
                 else:
                     # Directory pattern
                     for dir_path in project_path.rglob(pattern):
-                        if dir_path.is_dir():
+                        # Skip directories in ignored paths
+                        if dir_path.is_dir() and not any(p in dir_path.parts for p in self.IGNORED_DIRECTORIES):
                             size_mb = self._get_dir_size(dir_path) / (1024 * 1024)
                             items.append({
                                 "path": str(dir_path.relative_to(project_path)),

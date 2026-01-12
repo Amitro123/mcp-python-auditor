@@ -31,10 +31,8 @@ class EfficiencyTool(BaseTool):
         try:
             issues = []
             
-            for py_file in project_path.rglob("*.py"):
-                if any(p in py_file.parts for p in ['__pycache__', '.venv', 'venv', 'test']):
-                    continue
-                
+            # Use centralized file walker from BaseTool
+            for py_file in self.walk_project_files(project_path):
                 file_issues = self._analyze_file(py_file, project_path)
                 issues.extend(file_issues)
             

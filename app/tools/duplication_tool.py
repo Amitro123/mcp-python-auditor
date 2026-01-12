@@ -6,7 +6,6 @@ from typing import Dict, Any, List, Tuple
 from collections import defaultdict
 from rapidfuzz import fuzz
 from app.core.base_tool import BaseTool
-from app.core.config import ANALYSIS_EXCLUDES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,11 +51,8 @@ class DuplicationTool(BaseTool):
         """Extract all functions from Python files."""
         functions = []
         
-        for py_file in path.rglob("*.py"):
-            # Use centralized exclusion config
-            if any(p in py_file.parts for p in ANALYSIS_EXCLUDES):
-                continue
-            
+        # Use centralized file walker from BaseTool
+        for py_file in self.walk_project_files(path):
             try:
                 with open(py_file, 'r', encoding='utf-8') as f:
                     content = f.read()

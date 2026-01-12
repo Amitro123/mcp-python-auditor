@@ -370,6 +370,10 @@ class ReportGenerator:
         integration_count = sum(1 for f in test_files if 'integration' in f.lower())
         e2e_count = sum(1 for f in test_files if 'e2e' in f.lower() or 'test_e2e' in f.lower())
         
+        # Fallback for flat structure: if has_unit is True but count is 0, use total files
+        if has_unit and unit_count == 0:
+            unit_count = total_files
+        
         f.write("**Test Types:**\n")
         f.write(f"- Unit: {'✅' if has_unit else '❌'} ({unit_count} files)\n")
         f.write(f"- Integration: {'✅' if has_integration else '❌'} ({integration_count} files)\n")
@@ -839,8 +843,10 @@ class ReportGenerator:
             return
         
         dead_functions = data.get('dead_functions', [])
+        dead_variables = data.get('dead_variables', [])
+        dead_classes = data.get('dead_classes', [])
         unused_imports = data.get('unused_imports', [])
-        total = len(dead_functions) + len(unused_imports)
+        total = len(dead_functions) + len(dead_variables) + len(dead_classes) + len(unused_imports)
         
         if total == 0:
             f.write("✅ **Clean:** No dead code detected. All functions and imports are used.\n\n")
@@ -857,11 +863,18 @@ class ReportGenerator:
             f.write("\n")
         
         if unused_imports:
+            # Group imports by file
+            from collections import Counter
+            file_counts = Counter(imp.get('file', '') for imp in unused_imports)
+            
             f.write(f"**Unused Imports ({len(unused_imports)}):**\n")
-            for imp in unused_imports[:10]:
-                f.write(f"- `{imp.get('file', '')}`: {imp.get('import', '')}\n")
-            if len(unused_imports) > 10:
-                f.write(f"\n*...and {len(unused_imports) - 10} more*\n")
+            for file, count in list(file_counts.items())[:10]:
+                if count > 1:
+                    f.write(f"- `{file}` ({count} imports)\n")
+                else:
+                    f.write(f"- `{file}`\n")
+            if len(file_counts) > 10:
+                f.write(f"\n*...and {len(file_counts) - 10} more files*\n")
             f.write("\n")
     
     def _write_mandatory_secrets(self, f, data: Dict[str, Any]) -> None:

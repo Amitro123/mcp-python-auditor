@@ -47,12 +47,15 @@ class SecretsTool(BaseTool):
         secrets = []
         
         try:
-            # Use centralized exclusion config
-            exclude_patterns = get_analysis_excludes_regex()
-            
+            # Build exclusion patterns from centralized IGNORED_DIRECTORIES
             cmd = ['detect-secrets', 'scan', '--all-files']
-            for pattern in exclude_patterns:
-                cmd.extend(['--exclude-files', pattern])
+            
+            # Add exclusions for each ignored directory as glob patterns
+            for ignored_dir in self.IGNORED_DIRECTORIES:
+                # detect-secrets uses glob patterns, so we need **/{dir}/**
+                cmd.extend(['--exclude-files', f'.*/{ignored_dir}/.*'])
+                cmd.extend(['--exclude-files', f'{ignored_dir}/.*'])
+            
             cmd.append(str(project_path))
             
             result = subprocess.run(
@@ -68,9 +71,15 @@ class SecretsTool(BaseTool):
                 try:
                     data = json.loads(result.stdout)
                     
-                    # Extract secrets from results
+                    # Extract secrets from results WITH FILTERING
                     if 'results' in data:
                         for file_path, findings in data['results'].items():
+                            # CRITICAL: Filter out files in ignored directories
+                            # Check if path contains any ignored folder (e.g. "htmlcov", ".pytest_cache")
+                            if any(ignored in file_path for ignored in self.IGNORED_DIRECTORIES):
+                                logger.debug(f"Skipping secrets in ignored directory: {file_path}")
+                                continue
+                            
                             for finding in findings:
                                 secrets.append({
                                     "file": file_path,

@@ -11,15 +11,27 @@ logger = logging.getLogger(__name__)
 # Central "Dispatcher" Logic - Exclusion Lists
 # ============================================
 
+# Import centralized exclusion list from BaseTool
+# This ensures all tools use the SAME blacklist
+def _get_base_excludes() -> List[str]:
+    """Get centralized exclusion list from BaseTool."""
+    try:
+        from app.core.base_tool import BaseTool
+        return list(BaseTool.IGNORED_DIRECTORIES)
+    except ImportError:
+        # Fallback if there's a circular import issue
+        return [
+            "node_modules", "dist", "build", 
+            "venv", ".venv", "env", ".env", "test-venv",
+            "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+            ".git", ".svn", ".idea", ".vscode", ".gemini", "scratch", "antigravity",
+            "coverage", "htmlcov", ".tox", ".nox",
+            "site-packages", "fresh-install-test",
+            "migrations"  # Database migrations - typically auto-generated
+        ]
+
 # Files/dirs excluded from deep code analysis (security, secrets, complexity, etc.)
-ANALYSIS_EXCLUDES = [
-    "node_modules", "dist", "build", 
-    "venv", ".venv", "env",
-    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-    ".git", ".svn", ".idea", ".vscode",
-    "coverage", "htmlcov", ".tox", ".nox",
-    "migrations"  # Database migrations - typically auto-generated
-]
+ANALYSIS_EXCLUDES = _get_base_excludes()
 
 # Files/dirs excluded from cleanup detection (minimal - only version control)
 CLEANUP_EXCLUDES = [".git", ".svn"]
@@ -54,6 +66,7 @@ def get_analysis_excludes_regex() -> List[str]:
     ])
     
     return patterns
+
 
 
 

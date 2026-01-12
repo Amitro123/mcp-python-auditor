@@ -9,7 +9,6 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.schemas import (
     AuditRequest,
     AuditResult,
     ToolInfo,

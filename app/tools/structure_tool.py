@@ -54,15 +54,10 @@ class StructureTool(BaseTool):
             # Get all items, sorted (directories first, then files)
             items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
             
-            # Filter out common ignore patterns
-            ignore_patterns = {
-                '__pycache__', '.git', '.pytest_cache', 'node_modules',
-                '.venv', 'venv', '.env', '.idea', '.vscode', '*.pyc'
-            }
-            
+            # Filter using centralized blacklist from BaseTool
             items = [
                 item for item in items
-                if item.name not in ignore_patterns and not item.name.startswith('.')
+                if item.name not in self.IGNORED_DIRECTORIES and not item.name.startswith('.')
             ]
             
             for i, item in enumerate(items):
@@ -116,8 +111,8 @@ class StructureTool(BaseTool):
         
         for item in path.rglob('*'):
             if item.is_file():
-                # Skip common ignore patterns
-                if any(p in item.parts for p in ['__pycache__', '.git', 'node_modules', '.venv']):
+                # Use centralized blacklist from BaseTool
+                if any(p in item.parts for p in self.IGNORED_DIRECTORIES):
                     continue
                 
                 ext = item.suffix if item.suffix else '[no extension]'
@@ -130,8 +125,8 @@ class StructureTool(BaseTool):
         count = 0
         for item in path.rglob('*'):
             if item.is_dir():
-                # Skip common ignore patterns
-                if any(p in item.parts for p in ['__pycache__', '.git', 'node_modules', '.venv']):
+                # Use centralized blacklist from BaseTool
+                if any(p in item.parts for p in self.IGNORED_DIRECTORIES):
                     continue
                 count += 1
         return count
