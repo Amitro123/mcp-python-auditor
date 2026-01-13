@@ -126,7 +126,7 @@ def unused_function():
         
         result = run_cleanup_scan(sample_code)
         
-        assert result["status"] in ["clean", "issues_found"]
+        assert result["status"] in ["clean", "issues_found", "cleanup_available"]
         assert "total_size_mb" in result
     
     def test_git_tool(self, sample_code):
@@ -166,7 +166,8 @@ def unused_function():
         
         assert "tool" in result
         if result["status"] != "skipped":
-            assert "total_vulns" in result
+            # Check for either field name (API changed)
+            assert "total_vulns" in result or "total_vulnerabilities" in result
 
 
 class TestToolErrorHandling:

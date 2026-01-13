@@ -62,10 +62,11 @@ class BaseTool(ABC):
             logger.error(f"Path does not exist: {path}")
             return False
         
-        # Check if any part of the path is in the ignored list
+        # Check if any part of the path is in the ignored list (case-insensitive)
         parts = path.parts
+        ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
         for part in parts:
-            if part in self.IGNORED_DIRECTORIES:
+            if part.lower() in ignored_lower:
                 return False
         
         return True
@@ -86,9 +87,11 @@ class BaseTool(ABC):
         """
         for root, dirs, files in os.walk(root_path):
             # CRITICAL: Modify dirs IN-PLACE to prevent os.walk from descending into them
+            # Use case-insensitive comparison for Windows compatibility
+            ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
             dirs[:] = [
                 d for d in dirs 
-                if d not in self.IGNORED_DIRECTORIES and not d.startswith('.')
+                if d.lower() not in ignored_lower and not d.startswith('.')
             ]
             
             for file in files:
