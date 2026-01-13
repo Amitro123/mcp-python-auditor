@@ -15,6 +15,7 @@ import time
 import datetime
 import asyncio
 import uuid
+import os
 from typing import Dict, Any
 
 # Import our internal tools
@@ -321,7 +322,20 @@ def run_structure(path: Path) -> dict:
     """Analyze project structure and generate a tree view."""
     try:
         p = Path(path)
-        py_files = list(p.glob("**/*.py"))
+        
+        # Use os.walk with proper exclusions instead of glob (case-insensitive)
+        exclude_dirs_lower = {
+            "htmlcov", "reports", "site-packages", "node_modules", 
+            ".git", "__pycache__", ".venv", "venv", ".idea", ".vscode", 
+            "build", "dist", ".pytest_cache", ".mypy_cache", "env", ".env",
+            "fresh-install-test", "eggs", ".eggs", "lib", "lib64"
+        }
+        
+        py_files = []
+        for root, dirs, files in os.walk(p):
+            # Skip excluded directories (case-insensitive, in-place modification)
+            dirs[:] = [d for d in dirs if d.lower() not in exclude_dirs_lower and not d.startswith(".")]
+            py_files.extend([Path(root) / f for f in files if f.endswith(".py")])
         
         # Fast line counting (binary mode is faster)
         total_lines = 0
@@ -332,13 +346,8 @@ def run_structure(path: Path) -> dict:
                         total_lines += sum(1 for _ in fp)
                 except: pass
         
-        # Generate Tree
+        # Generate Tree (reuse same exclusions, case-insensitive)
         tree_lines = []
-        exclude_dirs = {
-            "htmlcov", "reports", "site-packages", "node_modules", 
-            ".git", "__pycache__", ".venv", "venv", ".idea", ".vscode", 
-            "build", "dist", ".pytest_cache", ".mypy_cache"
-        }
         
         def _generate_tree(directory, prefix="", depth=0):
             if depth > 3: return # Max depth
@@ -346,7 +355,8 @@ def run_structure(path: Path) -> dict:
             items = []
             try:
                 for x in directory.iterdir():
-                    if x.name in exclude_dirs: continue
+                    # Case-insensitive exclusion check
+                    if x.name.lower() in exclude_dirs_lower: continue
                     if x.name.startswith('.'): continue
                     if x.is_file() and x.suffix in {'.pyc', '.pyo', '.html', '.js', '.css'}: continue # Skip report artifacts
                     items.append(x)
