@@ -1174,6 +1174,30 @@ def run_auto_fix(path: str, confirm: bool = False) -> str:
     
     target = Path(path).resolve()
     
+    # STEP 0: Check for dirty git state (BEFORE doing anything)
+    if confirm:
+        try:
+            git_check = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(target),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                stdin=subprocess.DEVNULL
+            )
+            
+            if git_check.stdout.strip():
+                return json.dumps({
+                    "status": "error",
+                    "error": "❌ **Action Aborted:** You have uncommitted changes. Please commit or stash ('git stash') your work before running Auto-Fix to keep the PR clean.",
+                    "dirty_files": git_check.stdout.strip().split('\n')[:10]
+                }, indent=2)
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "error": f"Git check failed: {e}. Cannot verify clean state."
+            }, indent=2)
+    
     # Identify cleanup targets
     cleanup_targets = ["__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "htmlcov", "dist", "build"]
     files_to_delete = []
@@ -1192,7 +1216,7 @@ def run_auto_fix(path: str, confirm: bool = False) -> str:
                 "cleanup": f"Would delete {len(files_to_delete)} cache/build directories",
                 "style_fix": "Would run 'ruff check --fix' and 'ruff format'",
                 "backup": f"Would create backup zip in {target / '.backups'}",
-                "git": "Would create a new branch 'auto-fix-{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}'"
+                "git": f"Would create a new branch 'auto-fix-{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}'"
             },
             "cleanup_details": files_to_delete[:10]
         }, indent=2)
@@ -1245,18 +1269,7 @@ def run_auto_fix(path: str, confirm: bool = False) -> str:
     except Exception as e:
         errors.append(f"Ruff fix failed: {e}")
 
-    # 4. Git Commit
-    try:
-        git_kwargs = {"cwd": str(target), "capture_output": True, "timeout": 30, "stdin": subprocess.DEVNULL}
-        subprocess.run(["git", "checkout", "-b", branch_name], **git_kwargs)
-        subprocess.run(["git", "add", "."], **git_kwargs)
-        commit_msg = f"Auto-fix: {', '.join(fixes_applied)}"
-        subprocess.run(["git", "commit", "-m", commit_msg], **git_kwargs)
-        fixes_applied.append(f"Git: Created branch '{branch_name}'")
-    except Exception as e:
-        errors.append(f"Git commit failed: {e}")
-
-    # 5. Log
+    # 4. Write Log (BEFORE git commit so it's included)
     try:
         log_file = target / "FIX_LOG.md"
         with open(log_file, "a", encoding="utf-8") as f:
@@ -1267,8 +1280,20 @@ def run_auto_fix(path: str, confirm: bool = False) -> str:
                 f.write(f"\n**Errors:**\n")
                 for err in errors:
                     f.write(f"- {err}\n")
-    except:
-        pass
+        fixes_applied.append("Log: Updated FIX_LOG.md")
+    except Exception as e:
+        errors.append(f"Log write failed: {e}")
+
+    # 5. Git Commit (AFTER log writing)
+    try:
+        git_kwargs = {"cwd": str(target), "capture_output": True, "timeout": 30, "stdin": subprocess.DEVNULL}
+        subprocess.run(["git", "checkout", "-b", branch_name], **git_kwargs)
+        subprocess.run(["git", "add", "."], **git_kwargs)
+        commit_msg = f"Auto-fix: {', '.join(fixes_applied[:3])}"
+        subprocess.run(["git", "commit", "-m", commit_msg], **git_kwargs)
+        fixes_applied.append(f"Git: Created branch '{branch_name}' with commit")
+    except Exception as e:
+        errors.append(f"Git commit failed: {e}")
 
     return json.dumps({
         "status": "completed",
