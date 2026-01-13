@@ -29,7 +29,11 @@ ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead co
 | **📝 Git** | Recent changes tracking & branch status |
 
 ### **Production Capabilities**
-* **Strict Dependency Validation:** Auto-detects missing tools and provides installation commands
+* **Agentic Dependency Installation:** AI automatically detects missing tools and asks user permission to install
+* **Realistic Scoring Algorithm:** Exponential penalties for low coverage (9% = -40 points, not -10)  
+* **Tool Execution Summary:** Comprehensive table showing status of all 12 tools at a glance
+* **Test Type Detection:** Automatically categorizes tests as Unit, Integration, or E2E
+* **Git Status Tracking:** Shows current branch, recent commits, and uncommitted changes
 * **Timeout Protection:** All subprocess calls protected with timeouts to prevent hangs
 * **Smart Filtering:** Automatically excludes `.venv`, `node_modules`, and build artifacts
 * **Pako Compression:** Mermaid graphs compressed for reliable link generation
@@ -208,20 +212,22 @@ Once connected to Claude, you can use natural language to trigger tools.
 
 ## 📊 Scoring Algorithm
 
-The score (0-100) is calculated based on:
+The score (0-100) uses **strict, realistic weights** to avoid false positives:
 
-| Category | Weight | Criteria |
-|----------|--------|----------|
-| **Security** | 30% | Bandit issues, secrets, vulnerable dependencies |
-| **Code Quality** | 25% | Dead code, complexity, duplicates |
-| **Testing** | 20% | Coverage percentage |
-| **Architecture** | 15% | Import structure, modularity |
-| **Cleanup** | 10% | Junk files, cache size |
+| Category | Max Penalty | How It's Calculated |
+|----------|-------------|---------------------|
+| **Security** | -30 points | Bandit issues (-20), Secrets found (-10) |
+| **Testing** | -40 points | **Exponential:** \u003c20% = -40, \u003c50% = -25, \u003c80% = -10 |
+| **Quality** | -20 points | Duplicates (-15 max), Dead code (-5 max) |
+| **Complexity** | -10 points | High-complexity functions (-2 each, -10 max) |
+
+**Example:**
+- Project with 9% coverage + 78 duplicates = **45/100** 🔴 (not 90/100)
 
 **Score Grades:**
-- 🟢 **90-100:** Excellent
-- 🟡 **70-89:** Good
-- 🔴 **0-69:** Needs Improvement
+- 🟢 **80-100:** Excellent (strict threshold)
+- 🟡 **60-79:** Good  
+- 🔴 **0-59:** Needs Improvement
 
 ---
 
@@ -280,7 +286,51 @@ docker-compose up --build
 
 ---
 
-## 🐛 Troubleshooting
+## � Report Features
+
+Every generated report includes:
+
+### 1. **Tool Execution Summary**
+A comprehensive table showing the status of all 12 analysis tools:
+
+| Tool | Status | Details |
+|------|--------|----------|
+| 📁 Structure | ✅ Pass | 140 files, 15 dirs |
+| 🔒 Security | ❌ Fail | 3 issues |
+| ✅ Tests | ⚠️ Error | Coverage: 9% |
+
+### 2. **Test Type Breakdown**
+Automatically categorizes tests for better insight:
+
+```
+**Test Types:**
+- Unit: ✅ (15 files)
+- Integration: ❌ (0 files)  
+- E2E: ❌ (0 files)
+
+👉 **Recommendation:** Add integration tests to verify component interactions
+```
+
+### 3. **Git Status** 
+Shows repository health:
+
+```
+**Branch:** `main`
+**Recent Commits:** 45
+
+**Latest Changes:**
+- feat: Add agentic dependency flow
+- fix: Realistic scoring algorithm
+- docs: Update README
+
+⚠️ **Uncommitted Changes:**
+- M README.md
+- A new_feature.py
+```
+
+---
+
+## �🐛 Troubleshooting
 
 ### "Tool not found" in Claude
 - **Fix:** Restart Claude Desktop
