@@ -1,27 +1,25 @@
-"""Security analysis using Bandit and pip-audit."""
+"""Security scanning tool using Bandit with Smart Target Discovery."""
+import json
+import sys
+import subprocess
+import logging
 from pathlib import Path
 from typing import Dict, Any, List
 from app.core.base_tool import BaseTool
-from app.core.subprocess_wrapper import SubprocessWrapper
-from app.core.config import get_analysis_excludes_comma, get_analysis_excludes_regex
-import logging
-import json
-import subprocess
-import sys
 
 logger = logging.getLogger(__name__)
 
 
 class SecurityTool(BaseTool):
-    """Comprehensive security analysis using multiple tools."""
+    """Scans code for security vulnerabilities using Bandit (Smart Targeting)."""
     
     @property
     def description(self) -> str:
-        return "Security analysis using Bandit (code), pip-audit (dependencies), and detect-secrets"
-    
+        return "Scans code for security vulnerabilities using Bandit (Smart Targeting)."
+
     def analyze(self, project_path: Path) -> Dict[str, Any]:
         """
-        Perform comprehensive security analysis.
+        Analyze project for security vulnerabilities using smart target discovery.
         
         Args:
             project_path: Path to the project directory
@@ -30,246 +28,120 @@ class SecurityTool(BaseTool):
             Dictionary with security findings
         """
         if not self.validate_path(project_path):
-            return {"error": "Invalid path"}
+            return {"error": "Invalid path", "status": "error"}
         
-        try:
-            # Run Bandit for code security issues
-            bandit_results = self._run_bandit(project_path)
-            
-            # Run pip-audit for dependency vulnerabilities
-            dependency_results = self._run_pip_audit(project_path)
-            
-            # Run detect-secrets for credential detection
-            secrets_results = self._run_detect_secrets(project_path)
-            
-            # Aggregate results
-            total_issues = (
-                len(bandit_results.get('issues', [])) +
-                len(dependency_results.get('vulnerabilities', [])) +
-                len(secrets_results.get('secrets', []))
-            )
-            
-            # Calculate severity counts
-            severity_counts = self._count_severities(bandit_results, dependency_results)
-            
-            return {
-                "code_security": bandit_results,
-                "dependency_security": dependency_results,
-                "secrets": secrets_results,
-                "total_issues": total_issues,
-                "severity_counts": severity_counts,
-                "tools_used": ["bandit", "pip-audit", "detect-secrets"]
-            }
+        target_path = Path(project_path).resolve()
         
-        except Exception as e:
-            logger.error(f"Security analysis failed: {e}")
-            return {"error": str(e)}
-    
-    def _run_bandit(self, project_path: Path) -> Dict[str, Any]:
-        """Run Bandit for code security analysis."""
-        try:
-            # Normalize excludes - ensure we cover standard ignores
-            # Use strict list from requirements plus class excludes
-            exclude_list = set(list(self.IGNORED_DIRECTORIES) + ["tests", ".venv", "venv", "external_libs", ".git", "__pycache__"])
-            excludes_str = ",".join([d.replace("\\", "/") for d in sorted(list(exclude_list))])
-            
-            cmd = [
-                sys.executable, "-m", "bandit",
-                "-r", ".",  # Scan recursively
-                "-f", "json",
-                "-x", excludes_str,
-                "-ll"
+        # --- STRATEGY: Smart Target Discovery ---
+        # Instead of letting Bandit walk the whole tree and get stuck in node_modules,
+        # we explicitly tell it which source folders to scan.
+        
+        known_source_dirs = ["src", "app", "scripts", "lib", "core", "backend", "api"]
+        scan_targets: List[str] = []
+        
+        # Check which source folders actually exist
+        for folder in known_source_dirs:
+            p = target_path / folder
+            if p.exists() and p.is_dir():
+                scan_targets.append(str(p))
+        
+        # Prepare command arguments
+        exclude_args: List[str] = []
+        
+        if scan_targets:
+            # OPTION A: We found source folders. Scan ONLY them.
+            # This is extremely fast because it bypasses root files and node_modules entirely.
+            logger.info(f"Smart Scan Targets: {scan_targets}")
+            print(f"[BANDIT] Smart Scan Targets: {scan_targets}", file=sys.stderr)
+            targets = scan_targets
+            # No exclude needed because we are pointing directly to clean folders
+        else:
+            # OPTION B: No standard folders found. Fallback to scanning root.
+            # We must be very aggressive with exclusions here.
+            logger.info("No source folders found. Scanning root with strict exclusions.")
+            print("[BANDIT] No source folders found. Scanning root with strict exclusions.", file=sys.stderr)
+            targets = [str(target_path)]
+            exclude_dirs = [
+                "node_modules", "external_libs", "venv", ".venv", "env",
+                "tests", "test", ".git", "__pycache__", ".idea", ".vscode",
+                "dist", "build", "coverage", "site-packages", "htmlcov",
+                ".pytest_cache", ".mypy_cache", ".tox"
             ]
-            
-            logger.debug(f"Running bandit with excludes: {excludes_str[:100]}...")
-            
-            result = subprocess.run(
-                cmd,
-                cwd=project_path,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                errors='replace'
-            )
-            
-            # Allow exit code 0 (clean) and 1 (issues found)
-            if result.returncode not in [0, 1]:
-                if "not found" in result.stderr.lower():
-                    logger.warning("Bandit not installed")
-                    return {"issues": [], "skipped": True, "message": "Bandit not installed"}
-                logger.error(f"Bandit failed with code {result.returncode}: {result.stderr}")
-                return {"issues": [], "error": result.stderr}
-            
-            stdout = result.stdout
-            
-        except subprocess.TimeoutExpired:
-            logger.error("Bandit timed out")
-            return {"issues": [], "error": "Bandit timed out"}
-        except FileNotFoundError:
-            logger.warning("Bandit command not found")
-            return {"issues": [], "skipped": True, "message": "Bandit not installed"}
+            exclude_args = ["-x", ",".join(exclude_dirs)]
+
+        # Construct the Bandit command
+        cmd = [
+            sys.executable, "-m", "bandit",
+            "-r", *targets,
+            "-f", "json"
+        ] + exclude_args
         
+        logger.info(f"Running: {' '.join(cmd)}")
+
         try:
-            data = json.loads(stdout)
+            # Run with a 300s timeout (5 minutes - Windows IO can be slow)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
-            # Extract metrics for files scanned
-            metrics = data.get("metrics", {})
-            total_files = sum(m.get("loc", 0) for m in metrics.values()) if metrics else 0
-            
-            raw_issues = data.get('results', [])
-            issues = []
-            
-            for result in raw_issues:
-                issues.append({
-                    "file": result.get('filename', ''),
-                    "line": result.get('line_number', 0),
-                    "severity": result.get('issue_severity', 'UNKNOWN'),
-                    "confidence": result.get('issue_confidence', 'UNKNOWN'),
-                    "issue": result.get('issue_text', ''),
-                    "cwe": result.get('issue_cwe', {}).get('id', 'N/A')
-                })
-            
-            return {
-                "issues": issues,
-                "total_issues": len(issues),
-                "files_scanned": total_files,
-                "skipped": False
-            }
-        
-        except json.JSONDecodeError:
-            logger.error("Failed to parse Bandit output")
-            return {"issues": [], "error": "Failed to parse output"}
-    
-    def _run_pip_audit(self, project_path: Path) -> Dict[str, Any]:
-        """Run pip-audit for dependency vulnerability scanning."""
-        # Check for requirements.txt
-        requirements_file = project_path / "requirements.txt"
-        if not requirements_file.exists():
-            logger.info("No requirements.txt found, skipping pip-audit")
-            return {
-                "vulnerabilities": [],
-                "skipped": True,
-                "message": "No requirements.txt found"
-            }
-        
-        try:
-            result = subprocess.run(
-                ['pip-audit', '-r', str(requirements_file), '--format', 'json'],
-                cwd=project_path,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                errors='replace'
-            )
-            
-            # Allow exit code 0 (clean) and 1 (issues found)
-            if result.returncode not in [0, 1]:
-                if "not found" in result.stderr.lower():
-                    logger.warning("pip-audit not installed")
-                    return {
-                        "vulnerabilities": [],
-                        "skipped": True,
-                        "message": "pip-audit not installed"
+            try:
+                data = json.loads(result.stdout)
+                metrics = data.get("metrics", {})
+                issues = data.get("results", [])
+                
+                total_files = sum(m.get("loc", 0) for m in metrics.values()) if metrics else 0
+                
+                # Format issues for report
+                formatted_issues = []
+                for issue in issues[:20]:  # Limit to 20
+                    formatted_issues.append({
+                        "file": issue.get("filename", ""),
+                        "line": issue.get("line_number", 0),
+                        "severity": issue.get("issue_severity", "UNKNOWN"),
+                        "confidence": issue.get("issue_confidence", "UNKNOWN"),
+                        "type": issue.get("test_id", ""),
+                        "description": issue.get("issue_text", "")
+                    })
+                
+                return {
+                    "tool": "bandit",
+                    "status": "issues_found" if issues else "clean",
+                    "files_scanned": total_files,
+                    "total_issues": len(issues),
+                    "issues": formatted_issues,
+                    "scan_targets": targets,
+                    "code_security": {
+                        "files_scanned": total_files,
+                        "issues": formatted_issues
                     }
-                logger.error(f"pip-audit failed with code {result.returncode}: {result.stderr}")
-                # Try to parse output anyway if it matches JSON
-            
-            stdout = result.stdout
-            
+                }
+            except json.JSONDecodeError:
+                # Bandit writes to stderr if it crashes, or stdout might be empty
+                logger.warning(f"Bandit JSON decode error: {result.stdout[:200]}")
+                return {
+                    "status": "error", 
+                    "error": "Bandit output parse failed", 
+                    "raw_sample": result.stdout[:200] or result.stderr[:200],
+                    "code_security": {"files_scanned": 0, "issues": []}
+                }
+
         except subprocess.TimeoutExpired:
-            logger.error("pip-audit timed out")
-            return {"vulnerabilities": [], "error": "pip-audit timed out"}
+            logger.error(f"Bandit scan timed out (>60s) on targets: {targets}")
+            return {
+                "status": "error", 
+                "error": "TIMEOUT: Bandit scan took too long (>60s).",
+                "debug_targets": str(targets),
+                "code_security": {"files_scanned": 0, "issues": []}
+            }
         except FileNotFoundError:
+            logger.warning("Bandit not installed")
             return {
-                "vulnerabilities": [],
-                "skipped": True,
-                "message": "pip-audit not installed"
+                "status": "skipped",
+                "error": "Bandit not installed. Run: pip install bandit",
+                "code_security": {"files_scanned": 0, "issues": []}
             }
-        
-        try:
-            data = json.loads(stdout) if stdout else {"dependencies": []}
-            vulnerabilities = []
-            
-            for dep in data.get('dependencies', []):
-                for vuln in dep.get('vulns', []):
-                    vulnerabilities.append({
-                        "package": dep.get('name', 'unknown'),
-                        "version": dep.get('version', 'unknown'),
-                        "vulnerability_id": vuln.get('id', 'N/A'),
-                        "description": vuln.get('description', ''),
-                        "fix_versions": vuln.get('fix_versions', [])
-                    })
-            
+        except Exception as e:
+            logger.error(f"Security scan failed: {e}")
             return {
-                "vulnerabilities": vulnerabilities,
-                "total_vulnerabilities": len(vulnerabilities),
-                "skipped": False
+                "error": str(e), 
+                "status": "error",
+                "code_security": {"files_scanned": 0, "issues": []}
             }
-        
-        except json.JSONDecodeError:
-            logger.error("Failed to parse pip-audit output")
-            return {"vulnerabilities": [], "error": "Failed to parse output"}
-    
-    def _run_detect_secrets(self, project_path: Path) -> Dict[str, Any]:
-        """Run detect-secrets for credential detection."""
-        # Use centralized exclusion config
-        exclude_patterns = get_analysis_excludes_regex()
-        
-        cmd = ['detect-secrets', 'scan', '--all-files']
-        for pattern in exclude_patterns:
-            cmd.extend(['--exclude-files', pattern])
-        cmd.append(str(project_path))
-        
-        success, stdout, stderr = SubprocessWrapper.run_command(
-            cmd,
-            cwd=project_path,
-            timeout=300,
-            check_venv=False
-        )
-        
-        if not success:
-            if "not found" in stderr.lower():
-                return {"secrets": [], "skipped": True, "message": "detect-secrets not installed"}
-            logger.error(f"detect-secrets failed: {stderr}")
-            return {"secrets": [], "error": stderr}
-        
-        try:
-            data = json.loads(stdout)
-            secrets = []
-            
-            for file_path, findings in data.get('results', {}).items():
-                for finding in findings:
-                    secrets.append({
-                        "file": file_path,
-                        "line": finding.get('line_number', 0),
-                        "type": finding.get('type', 'Unknown')
-                    })
-            
-            return {
-                "secrets": secrets,
-                "total_secrets": len(secrets),
-                "skipped": False
-            }
-        
-        except json.JSONDecodeError:
-            logger.error("Failed to parse detect-secrets output")
-            return {"secrets": [], "error": "Failed to parse output"}
-    
-    def _count_severities(
-        self,
-        bandit_results: Dict[str, Any],
-        dependency_results: Dict[str, Any]
-    ) -> Dict[str, int]:
-        """Count issues by severity."""
-        counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
-        
-        # Count Bandit severities
-        for issue in bandit_results.get('issues', []):
-            severity = issue.get('severity', 'UNKNOWN')
-            if severity in counts:
-                counts[severity] += 1
-        
-        # All dependency vulnerabilities are considered HIGH
-        counts["HIGH"] += len(dependency_results.get('vulnerabilities', []))
-        
-        return counts

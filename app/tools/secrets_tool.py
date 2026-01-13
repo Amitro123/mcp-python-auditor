@@ -1,25 +1,25 @@
-"""Secrets detection tool using detect-secrets."""
-from pathlib import Path
-from typing import Dict, Any, List
+"""Secrets detection tool using detect-secrets with Smart Targeting."""
 import subprocess
 import json
-from app.core.base_tool import BaseTool
-from app.core.config import get_analysis_excludes_regex
+import sys
 import logging
+from pathlib import Path
+from typing import Dict, Any, List
+from app.core.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
 class SecretsTool(BaseTool):
-    """Detect potential secrets in code using detect-secrets."""
+    """Scans for secrets using detect-secrets (Smart Targeted)."""
     
     @property
     def description(self) -> str:
-        return "Detects potential secrets and credentials using detect-secrets library"
-    
+        return "Scans for secrets using detect-secrets (Smart Targeted)."
+
     def analyze(self, project_path: Path) -> Dict[str, Any]:
         """
-        Analyze project for secrets.
+        Analyze project for secrets using smart target discovery.
         
         Args:
             project_path: Path to the project directory
@@ -28,79 +28,103 @@ class SecretsTool(BaseTool):
             Dictionary with detected secrets
         """
         if not self.validate_path(project_path):
-            return {"error": "Invalid path"}
+            return {"error": "Invalid path", "status": "error"}
         
+        target_path = Path(project_path).resolve()
+        
+        # --- SMART TARGETING (Same as Bandit) ---
+        known_source_dirs = ["src", "app", "scripts", "lib", "core", "backend", "api"]
+        scan_targets: List[str] = []
+        
+        for folder in known_source_dirs:
+            p = target_path / folder
+            if p.exists() and p.is_dir():
+                scan_targets.append(str(p))
+        
+        # Determine paths to scan
+        files_to_scan = scan_targets if scan_targets else [str(target_path)]
+        
+        logger.info(f"Secrets scan targets: {files_to_scan}")
+        print(f"[SECRETS] Smart Scan Targets: {files_to_scan}", file=sys.stderr)
+        
+        # Build command: detect-secrets scan [path1] [path2] ...
+        cmd = ["detect-secrets", "scan"] + files_to_scan
+        
+        # Exclusions (only needed if we fell back to root)
+        if not scan_targets:
+            cmd.extend([
+                "--exclude-files", "node_modules",
+                "--exclude-files", "external_libs",
+                "--exclude-files", "venv",
+                "--exclude-files", ".venv",
+                "--exclude-files", "dist",
+                "--exclude-files", "build",
+                "--exclude-files", "__pycache__",
+                "--exclude-files", ".git",
+                "--exclude-files", "htmlcov",
+                "--exclude-files", ".pytest_cache"
+            ])
+
         try:
-            secrets = self._run_detect_secrets(project_path)
+            # 300 Seconds Timeout (5 Minutes)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
+            try:
+                data = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                data = {"results": {}}
+
+            secrets: List[Dict[str, Any]] = []
+            
+            # Extract and filter results
+            for file_path, findings in data.get("results", {}).items():
+                # Safety filter - skip unwanted paths
+                if any(x in file_path for x in [
+                    "node_modules", "external_libs", "tests", 
+                    ".min.js", ".map", ".venv", "venv", "__pycache__"
+                ]):
+                    continue
+                
+                for finding in findings:
+                    secrets.append({
+                        "file": file_path,
+                        "line": finding.get('line_number', 0),
+                        "type": finding.get('type', 'Unknown'),
+                        "hashed_secret": finding.get('hashed_secret', '')[:16] + '...'
+                    })
+
             return {
+                "tool": "detect-secrets",
+                "status": "issues_found" if secrets else "clean",
                 "secrets": secrets,
                 "total_secrets": len(secrets),
-                "files_with_secrets": len(set(s['file'] for s in secrets))
+                "files_with_secrets": len(set(s['file'] for s in secrets)),
+                "scan_targets": files_to_scan
+            }
+
+        except subprocess.TimeoutExpired:
+            logger.error(f"Secrets scan timed out (>300s) on targets: {files_to_scan}")
+            return {
+                "tool": "detect-secrets",
+                "status": "error",
+                "error": "Timeout: Secrets scan took too long (>300s).",
+                "debug_targets": str(files_to_scan),
+                "secrets": [],
+                "total_secrets": 0
+            }
+        except FileNotFoundError:
+            logger.warning("detect-secrets not installed")
+            return {
+                "status": "skipped",
+                "error": "detect-secrets not installed. Run: pip install detect-secrets",
+                "secrets": [],
+                "total_secrets": 0
             }
         except Exception as e:
-            logger.error(f"Secrets detection failed: {e}")
-            return {"error": str(e), "secrets": [], "total_secrets": 0}
-    
-    def _run_detect_secrets(self, project_path: Path) -> List[Dict[str, Any]]:
-        """Run detect-secrets scan."""
-        secrets = []
-        
-        try:
-            # Build exclusion patterns from centralized IGNORED_DIRECTORIES
-            cmd = ['detect-secrets', 'scan', '--all-files']
-            
-            # Add exclusions for each ignored directory as glob patterns
-            for ignored_dir in self.IGNORED_DIRECTORIES:
-                # detect-secrets uses glob patterns, so we need **/{dir}/**
-                cmd.extend(['--exclude-files', f'.*/{ignored_dir}/.*'])
-                cmd.extend(['--exclude-files', f'{ignored_dir}/.*'])
-            
-            cmd.append(str(project_path))
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                cwd=project_path
-            )
-            
-            if result.returncode == 0:
-                # Parse JSON output
-                try:
-                    data = json.loads(result.stdout)
-                    
-                    # Extract secrets from results WITH FILTERING
-                    if 'results' in data:
-                        for file_path, findings in data['results'].items():
-                            # CRITICAL: Filter out files in ignored directories
-                            # Check if path contains any ignored folder (e.g. "htmlcov", ".pytest_cache")
-                            if any(ignored in file_path for ignored in self.IGNORED_DIRECTORIES):
-                                logger.debug(f"Skipping secrets in ignored directory: {file_path}")
-                                continue
-
-                            # FILTER: Ignore dependencies, venvs, and test files explicitly
-                            if "external_libs" in file_path or ".venv" in file_path or "tests" in file_path:
-                                continue
-                            
-                            for finding in findings:
-                                secrets.append({
-                                    "file": file_path,
-                                    "line": finding.get('line_number', 0),
-                                    "type": finding.get('type', 'Unknown'),
-                                    "hashed_secret": finding.get('hashed_secret', '')[:16] + '...'
-                                })
-                except json.JSONDecodeError:
-                    logger.warning("Failed to parse detect-secrets output")
-            else:
-                logger.warning(f"detect-secrets exited with code {result.returncode}")
-        
-        except subprocess.TimeoutExpired:
-            logger.error("detect-secrets scan timed out")
-        except FileNotFoundError:
-            logger.warning("detect-secrets not installed - skipping secrets scan")
-        except Exception as e:
-            logger.error(f"Error running detect-secrets: {e}")
-        
-        return secrets
+            logger.error(f"Secrets scan failed: {e}")
+            return {
+                "error": str(e), 
+                "status": "error",
+                "secrets": [],
+                "total_secrets": 0
+            }

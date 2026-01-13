@@ -11,3 +11,4 @@ astor==0.8.1
 rapidfuzz==3.10.0
 python-multipart==0.0.12
 aiofiles==24.1.0
+fastmcp>=0.1.0
