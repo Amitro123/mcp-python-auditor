@@ -6,7 +6,7 @@
 
 **Production-ready Model Context Protocol (MCP) server for deep Python/FastAPI project analysis.**
 
-ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead code, efficiency issues, and security risks, generating actionable markdown reports.
+ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead code, efficiency issues, and security risks, generating actionable markdown reports with **realistic scores** and **comprehensive insights**.
 
 ---
 
@@ -25,20 +25,20 @@ ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead co
 | **🔑 Secrets** | Credential detection using `detect-secrets` |
 | **📋 Ruff** | Fast Python linter for code quality |
 | **🔍 Pip-Audit** | Dependency vulnerability checking |
-| **✅ Tests** | Coverage analysis with pytest integration |
-| **📝 Git** | Recent changes tracking & branch status |
+| **✅ Tests** | Coverage analysis with Unit/Integration/E2E breakdown |
+| **📝 Git** | Recent changes, commit tracking & branch status |
 
 ### **Production Capabilities**
-* **Agentic Dependency Installation:** AI automatically detects missing tools and asks user permission to install
-* **Realistic Scoring Algorithm:** Exponential penalties for low coverage (9% = -40 points, not -10)  
-* **Tool Execution Summary:** Comprehensive table showing status of all 12 tools at a glance
-* **Test Type Detection:** Automatically categorizes tests as Unit, Integration, or E2E
-* **Git Status Tracking:** Shows current branch, recent commits, and uncommitted changes
-* **Timeout Protection:** All subprocess calls protected with timeouts to prevent hangs
-* **Smart Filtering:** Automatically excludes `.venv`, `node_modules`, and build artifacts
-* **Pako Compression:** Mermaid graphs compressed for reliable link generation
-* **Auto-Fix with Safety:** Git dirty check prevents mixing uncommitted changes
-* **100% Local:** No code leaves your machine
+* **✨ Agentic Dependency Installation:** AI automatically detects missing tools and asks user permission to install
+* **📊 Realistic Scoring Algorithm:** Exponential penalties for low coverage (9% = -40 points, not -10!)  
+* **📋 Tool Execution Summary:** Comprehensive table showing status of all 12 tools at a glance
+* **🧪 Test Type Detection:** Automatically categorizes tests as Unit, Integration, or E2E
+* **🔄 Recent Changes Tracking:** Shows last commit, author, time, and uncommitted changes
+* **⏱️ Timeout Protection:** All subprocess calls protected with timeouts to prevent hangs
+* **🎯 Smart Filtering:** Automatically excludes `.venv`, `node_modules`, and build artifacts
+* **🔗 Pako Compression:** Mermaid graphs compressed for reliable link generation
+* **🛡️ Auto-Fix with Safety:** Git dirty check prevents mixing uncommitted changes
+* **🔒 100% Local:** No code leaves your machine
 
 ---
 
@@ -107,9 +107,20 @@ pip install -r requirements.txt
 ```bash
 # Required for full functionality
 pip install bandit detect-secrets vulture radon ruff pip-audit pytest pytest-cov
+
+# Or let the AI install them for you! (Agentic flow)
+# Just run the server and it will detect missing tools automatically
 ```
 
-### 3. Run the MCP Server
+### 3. Verify Installation
+```bash
+# Run the verification script
+python verify_tools.py
+
+# Should show: ✅ All tools are properly installed!
+```
+
+### 4. Run the MCP Server
 You have two entry points depending on your needs:
 
 **Option A: FastMCP (Recommended for Claude Desktop/Cursor)**
@@ -148,6 +159,8 @@ To use this tool with Claude Desktop or Cursor, add the following to your config
 
 > **Note:** Use absolute paths and double backslashes (`\\`) on Windows.
 
+**📖 For detailed MCP setup guide, see:** [docs/MCP_USER_GUIDE.md](docs/MCP_USER_GUIDE.md)
+
 ---
 
 ## 🎯 Usage Examples
@@ -165,15 +178,13 @@ Once connected to Claude, you can use natural language to trigger tools.
 - Saves to `reports/FULL_AUDIT_<id>.md`
 - Returns markdown content to AI
 
-### 2. Specific Quality Check
+### 2. Missing Dependencies? No Problem!
 ```
-"Check for dead code and complexity issues in the current directory."
+AI: "I need to run an audit but tools are missing. Would you like me to install them?"
+You: "Yes, install them"
+AI: [Calls install_dependencies tool]
+AI: "✅ Installation successful! Running audit now..."
 ```
-
-**What it does:**
-- Runs Vulture for unused code
-- Runs Radon for cyclomatic complexity
-- Lists high-complexity functions
 
 ### 3. Architecture Review
 ```
@@ -185,17 +196,7 @@ Once connected to Claude, you can use natural language to trigger tools.
 - Groups modules into subgraphs by directory
 - Generates Mermaid diagram with compressed link
 
-### 4. Auto-Fix (Dry Run)
-```
-"Show me what auto-fix would do (dry run mode)."
-```
-
-**What it does:**
-- Lists files to be cleaned
-- Shows planned Ruff fixes
-- **Does NOT execute** (confirm=False)
-
-### 5. Auto-Fix (Execute)
+### 4. Auto-Fix (Safe Code Cleanup)
 ```
 "Run auto-fix with confirm=True."
 ```
@@ -217,12 +218,17 @@ The score (0-100) uses **strict, realistic weights** to avoid false positives:
 | Category | Max Penalty | How It's Calculated |
 |----------|-------------|---------------------|
 | **Security** | -30 points | Bandit issues (-20), Secrets found (-10) |
-| **Testing** | -40 points | **Exponential:** \u003c20% = -40, \u003c50% = -25, \u003c80% = -10 |
+| **Testing** | -40 points | **Exponential:** <20% = -40, <50% = -25, <80% = -10 |
 | **Quality** | -20 points | Duplicates (-15 max), Dead code (-5 max) |
 | **Complexity** | -10 points | High-complexity functions (-2 each, -10 max) |
 
-**Example:**
-- Project with 9% coverage + 78 duplicates = **45/100** 🔴 (not 90/100)
+### Before vs. After Fix
+
+**❌ Old Algorithm (Broken):**
+- Project with 9% coverage + 78 duplicates = **90/100** 🟢 (WRONG!)
+
+**✅ New Algorithm (Realistic):**
+- Same project = **45/100** 🔴 (Honest assessment!)
 
 **Score Grades:**
 - 🟢 **80-100:** Excellent (strict threshold)
@@ -231,15 +237,64 @@ The score (0-100) uses **strict, realistic weights** to avoid false positives:
 
 ---
 
+## 📝 Report Features
+
+Every generated report includes:
+
+### 1. **Tool Execution Summary**
+A comprehensive table showing the status of all 12 analysis tools:
+
+| Tool | Status | Details |
+|------|--------|----------|
+| 📁 Structure | ✅ Pass | 140 files, 15 dirs |
+| 🔒 Security | ❌ Fail | 3 issues |
+| ✅ Tests | ⚠️ Error | Coverage: 9% |
+| 🎭 Duplication | ❌ Fail | 78 duplicate blocks |
+
+### 2. **Test Type Breakdown**
+Automatically categorizes tests for better insight:
+
+```markdown
+**Test Types:**
+- Unit: ✅ (15 files)
+- Integration: ❌ (0 files)  
+- E2E: ❌ (0 files)
+
+👉 **Recommendation:** Add integration tests to verify component interactions
+```
+
+### 3. **Recent Changes**
+Shows last commit with full context:
+
+```markdown
+**Last Commit:** `3884c80` - Amit, 2 hours ago
+*"feat: Reformat Git Status as Recent Changes section"*
+
+**Status:** ⚠️ 3 uncommitted change(s)
+**Branch:** `main`
+```
+
+### 4. **Interactive Architecture Graph**
+Clickable Mermaid.Live link with:
+- Subgraph grouping by directory
+- Color-coded dependencies
+- Pako compression for long graphs
+
+---
+
 ## 📁 Project Structure
 
 ```
 mcp-python-auditor/
-├── app/                  # Application source code
+├── app/                  # Application source code (if using FastAPI mode)
 │   ├── agents/          # Analyzer orchestration
 │   ├── core/            # Base classes, config
 │   └── tools/           # 12 analysis tool implementations
-├── docs/                # Documentation (moved from root)
+├── docs/                # Documentation
+│   ├── MCP_USER_GUIDE.md           # Setup guide for Claude/Cursor
+│   ├── IMPLEMENTATION_SUMMARY.md   # Technical details
+│   ├── AUTOFIX_GUIDE.md            # Auto-fix workflow
+│   └── SESSION_SUMMARY.md          # Development history
 ├── backups/             # Backup files and logs
 ├── reports/             # Generated audit reports
 ├── tests/               # Test suite
@@ -247,7 +302,8 @@ mcp-python-auditor/
 ├── .gitignore
 ├── docker-compose.yml
 ├── Dockerfile
-├── mcp_fastmcp_server.py  # Main MCP entry point
+├── mcp_fastmcp_server.py   # ⭐ Main MCP entry point
+├── verify_tools.py          # Tool verification script
 ├── pyproject.toml
 ├── README.md
 └── requirements.txt
@@ -260,6 +316,22 @@ mcp-python-auditor/
 ### Running Tests
 ```bash
 pytest tests/ -v --cov=app
+```
+
+### Verifying Tools
+```bash
+python verify_tools.py
+```
+
+Output:
+```
+🔍 Verifying Audit Tools Installation
+==================================================
+✅ bandit               - Security scanning
+✅ detect-secrets       - Secret detection
+✅ vulture              - Dead code detection
+...
+🎉 All tools are properly installed!
 ```
 
 ### Adding a New Tool
@@ -286,63 +358,45 @@ docker-compose up --build
 
 ---
 
-## � Report Features
-
-Every generated report includes:
-
-### 1. **Tool Execution Summary**
-A comprehensive table showing the status of all 12 analysis tools:
-
-| Tool | Status | Details |
-|------|--------|----------|
-| 📁 Structure | ✅ Pass | 140 files, 15 dirs |
-| 🔒 Security | ❌ Fail | 3 issues |
-| ✅ Tests | ⚠️ Error | Coverage: 9% |
-
-### 2. **Test Type Breakdown**
-Automatically categorizes tests for better insight:
-
-```
-**Test Types:**
-- Unit: ✅ (15 files)
-- Integration: ❌ (0 files)  
-- E2E: ❌ (0 files)
-
-👉 **Recommendation:** Add integration tests to verify component interactions
-```
-
-### 3. **Git Status** 
-Shows repository health:
-
-```
-**Branch:** `main`
-**Recent Commits:** 45
-
-**Latest Changes:**
-- feat: Add agentic dependency flow
-- fix: Realistic scoring algorithm
-- docs: Update README
-
-⚠️ **Uncommitted Changes:**
-- M README.md
-- A new_feature.py
-```
-
----
-
-## �🐛 Troubleshooting
+## 🐛 Troubleshooting
 
 ### "Tool not found" in Claude
 - **Fix:** Restart Claude Desktop
 - **Check:** Look at logs in `%APPDATA%\Claude\logs\`
 
 ### "Missing tool: bandit"
-- **Fix:** Run `pip install bandit detect-secrets vulture radon ruff`
-- **Verify:** The server will show missing tools at startup
+- **Fix Option 1:** Let AI install them (agentic flow)
+  ```
+  User: "Run audit"
+  AI: "Tools missing. Install them?"
+  User: "Yes"
+  ```
+- **Fix Option 2:** Manual install
+  ```bash
+  pip install bandit detect-secrets vulture radon ruff pip-audit
+  ```
+- **Verify:** `python verify_tools.py`
+
+### False Scores (e.g., 90/100 with 9% coverage)
+- **Cause:** Using old version before scoring fix
+- **Fix:** Pull latest code: `git pull origin main`
+- **New behavior:** Realistic scores (45/100 for that project)
 
 ### Timeout errors
 - **Cause:** Large codebases or slow disk I/O
 - **Fix:** Tools have built-in timeouts (60s-300s) and will gracefully fail
+
+---
+
+## 🎉 Recent Improvements
+
+**v2.2 - Major Quality Update (Jan 2026)**
+- ✅ Fixed scoring algorithm (now realistic, not inflated)
+- ✅ Added agentic dependency installation
+- ✅ Tool execution summary in reports
+- ✅ Test type breakdown (Unit/Integration/E2E)
+- ✅ Recent changes section with last commit
+- ✅ Comprehensive tool verification script
 
 ---
 
@@ -352,7 +406,8 @@ Contributions welcome! Please:
 1. Fork the repository
 2. Create a feature branch
 3. Add tests for new tools
-4. Submit a PR with clear description
+4. Run `python verify_tools.py` before committing
+5. Submit a PR with clear description
 
 ---
 
@@ -367,7 +422,10 @@ MIT License - See [LICENSE](LICENSE) for details
 - Built with [FastMCP](https://github.com/jlowin/fastmcp) by Marvin/Prefect
 - AST parsing inspired by [Bandit](https://github.com/PyCQA/bandit)
 - Report structure based on industry code review standards
+- Scoring algorithm designed for honest project assessment
 
 ---
 
 **Made with ❤️ for clean, secure Python codebases**
+
+*No more false positives. No more silent failures. Just honest, actionable insights.*
