@@ -861,20 +861,43 @@ def generate_full_markdown_report(job_id: str, duration: str, results: dict, pat
     import datetime
     from pathlib import Path
     
-    # --- Helpers ---
+    # --- Weighted Scoring Algorithm ---
     score = 100
-    # Calc Score (Simple logic from user request)
+    
+    # 1. Security Penalty (Max -30)
     bandit_issues = results.get("bandit", {}).get("issues", [])
-    if bandit_issues: score -= 10
+    if bandit_issues:
+        score -= 20  # Critical security issues
     
-    ruff_issues = results.get("ruff", {}).get("issues", [])
-    if ruff_issues: score -= min(len(ruff_issues) * 2, 20)
+    secrets_findings = results.get("secrets", {}).get("total_findings", 0)
+    if secrets_findings > 0:
+        score -= 10  # Credentials in code
     
+    # 2. Testing Penalty (Max -40, Exponential)
     cov = results.get("tests", {}).get("coverage_percent", 100)
-    if cov < 80: score -= 10
+    if cov < 20:
+        score -= 40  # Severe: Almost no tests
+    elif cov < 50:
+        score -= 25  # Major: Low coverage
+    elif cov < 80:
+        score -= 10  # Minor: Needs improvement
+    
+    # 3. Code Quality Penalty (Max -20)
+    duplicates = results.get("duplication", {}).get("total_duplicates", 0)
+    score -= min(duplicates, 15)  # -1 per duplicate, cap at -15
+    
+    dead_code_items = len(results.get("dead_code", {}).get("unused_items", []))
+    score -= min(dead_code_items, 5)  # -1 per dead item, cap at -5
+    
+    # 4. Complexity Penalty (Max -10)
+    complex_funcs = len(results.get("efficiency", {}).get("high_complexity_functions", []))
+    score -= min(complex_funcs * 2, 10)  # -2 per complex function, cap at -10
+    
+    # 5. Ensure floor
     score = max(0, score)
     
-    score_emoji = "🟢" if score >= 90 else "🟡" if score >= 70 else "🔴"
+    # Updated emoji thresholds (stricter)
+    score_emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
     
     md = []
     md.append(f"# 🕵️‍♂️ Project Audit Report: {Path(path).name}")
@@ -1107,11 +1130,82 @@ async def run_audit_background(job_id: str, path: str):
         JOBS[job_id] = {"status": "failed", "error": str(e)}
 
 
+def check_dependencies() -> list:
+    """
+    Check which required tools are missing (non-raising version of ensure_dependencies).
+    Returns a list of missing tool names.
+    """
+    import shutil
+    import subprocess
+    
+    REQUIRED_TOOLS = ["bandit", "ruff", "vulture", "radon", "pip-audit", "pytest", "detect-secrets"]
+    missing = []
+    
+    for tool in REQUIRED_TOOLS:
+        # Check PATH first
+        if shutil.which(tool):
+            continue
+            
+        # Check Python Module (more reliable on Windows)
+        module_name = tool.replace("-", "_")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", module_name, "--version"],
+                capture_output=True, check=True, timeout=5, stdin=subprocess.DEVNULL
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            missing.append(tool)
+    
+    return missing
+
+
+@mcp.tool()
+def install_dependencies() -> str:
+    """
+    Install all required audit dependencies (bandit, detect-secrets, vulture, radon, ruff, pip-audit).
+    Returns confirmation message or error.
+    """
+    import subprocess
+    
+    TOOLS_TO_INSTALL = ["bandit", "detect-secrets", "vulture", "radon", "ruff", "pip-audit"]
+    
+    try:
+        log("Installing audit dependencies...")
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install"] + TOOLS_TO_INSTALL,
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minutes max
+            stdin=subprocess.DEVNULL
+        )
+        
+        if result.returncode == 0:
+            log(f"✅ Successfully installed: {', '.join(TOOLS_TO_INSTALL)}")
+            return f"✅ **Installation Successful!**\n\nInstalled tools: {', '.join(TOOLS_TO_INSTALL)}\n\nYou can now run the audit."
+        else:
+            error_msg = result.stderr or result.stdout
+            log(f"❌ Installation failed: {error_msg}")
+            return f"❌ **Installation Failed**\n\nError: {error_msg[:500]}"
+            
+    except subprocess.TimeoutExpired:
+        return "❌ **Installation Timeout** - Installation took longer than 5 minutes. Please try manually:\n`pip install bandit detect-secrets vulture radon ruff pip-audit`"
+    except Exception as e:
+        return f"❌ **Installation Error:** {str(e)}"
+
+
 @mcp.tool()
 async def start_full_audit(path: str) -> str:
     """Starts a FULL code audit (Security, Secrets, Quality, Dependencies) in the background."""
-    # Strict validation first
-    ensure_dependencies()
+    # Check dependencies first (agentic flow)
+    missing = check_dependencies()
+    if missing:
+        missing_list = ", ".join(missing)
+        return f"""❌ **Missing Dependencies Detected:** {missing_list}
+
+I cannot run the audit yet.
+**Please ask the user:** "Essential audit tools are missing ({missing_list}). Would you like me to install them for you now?"
+
+If the user says **Yes**, please call the `install_dependencies` tool, and then re-run the audit."""
     
     job_id = str(uuid.uuid4())[:8]  # Short ID
     
