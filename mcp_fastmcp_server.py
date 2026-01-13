@@ -706,10 +706,38 @@ def run_tests_coverage(path: Path) -> dict:
         if fail_match:
             tests_failed = int(fail_match.group(1))
         
-        # Count test files by category
+        # Count test files by category (smart detection)
+        unit_tests = list(target_path.glob("**/test_*.py")) + list(target_path.glob("**/tests/unit/**/*.py"))
+        integration_tests = list(target_path.glob("**/tests/integration/**/*.py")) + list(target_path.glob("**/test_integration_*.py"))
+        e2e_tests = list(target_path.glob("**/tests/e2e/**/*.py")) + list(target_path.glob("**/test_e2e_*.py"))
+        
+        # Remove duplicates and categorize
+        all_test_files = set()
+        unit_count = 0
+        integration_count = 0
+        e2e_count = 0
+        
+        # Categorize by path/name
+        for f in unit_tests:
+            if str(f) not in all_test_files and 'integration' not in str(f).lower() and 'e2e' not in str(f).lower():
+                unit_count += 1
+                all_test_files.add(str(f))
+        
+        for f in integration_tests:
+            if str(f) not in all_test_files:
+                integration_count += 1
+                all_test_files.add(str(f))
+        
+        for f in e2e_tests:
+            if str(f) not in all_test_files:
+                e2e_count += 1
+                all_test_files.add(str(f))
+        
         test_breakdown = {
-            "unit": len(list(target_path.glob("**/test_*.py"))),
-            "total_files": len(list(target_path.glob("**/test_*.py"))) + len(list(target_path.glob("**/*_test.py")))
+            "unit": unit_count,
+            "integration": integration_count,
+            "e2e": e2e_count,
+            "total_files": len(all_test_files)
         }
         
         return {
@@ -1085,10 +1113,37 @@ def generate_full_markdown_report(job_id: str, duration: str, results: dict, pat
 
     # Tests
     tests = results.get("tests", {})
+    test_breakdown = tests.get("test_breakdown", {})
+    total_test_files = test_breakdown.get("total_files", 0)
+    
     md.append("### 🧪 Tests & Coverage")
-    md.append(f"- **Coverage:** {tests.get('coverage_percent', 0)}%")
-    md.append(f"- **Passed:** {tests.get('tests_passed', 0)} ✅")
-    md.append(f"- **Failed:** {tests.get('tests_failed', 0)} ❌")
+    md.append("")
+    md.append(f"**Files Found:** {total_test_files} test files")
+    md.append(f"**Coverage:** {tests.get('coverage_percent', 0)}%")
+    md.append("")
+    md.append(f"**Test Results:**")
+    md.append(f"- Passed: {tests.get('tests_passed', 0)} ✅")
+    md.append(f"- Failed: {tests.get('tests_failed', 0)} ❌")
+    md.append("")
+    
+    # Test Type Breakdown
+    md.append("**Test Types:**")
+    unit_count = test_breakdown.get("unit", 0)
+    integration_count = test_breakdown.get("integration", 0)
+    e2e_count = test_breakdown.get("e2e", 0)
+    
+    md.append(f"- Unit: {'✅' if unit_count > 0 else '❌'} ({unit_count} files)")
+    md.append(f"- Integration: {'✅' if integration_count > 0 else '❌'} ({integration_count} files)")
+    md.append(f"- E2E: {'✅' if e2e_count > 0 else '❌'} ({e2e_count} files)")
+    
+    # Recommendations
+    if total_test_files == 0:
+        md.append("")
+        md.append("👉 **Fix:** No tests found. Create tests in `tests/` directory or using `test_*.py` naming.")
+    elif tests.get('coverage_percent', 0) < 80:
+        md.append("")
+        md.append(f"👉 **Recommendation:** Increase coverage (current: {tests.get('coverage_percent', 0)}%). Run: `pytest --cov=. --cov-report=term-missing`")
+    
     md.append("")
 
     # --- Git Status ---
