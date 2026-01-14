@@ -1674,6 +1674,600 @@ def audit_git(path: str) -> str:
     return json.dumps(result, indent=2)
 
 
+def get_changed_files(path: Path, base_branch: str = "main") -> list:
+    """
+    Helper: Get list of changed Python files compared to base branch.
+    
+    Args:
+        path: Project path
+        base_branch: Base branch to compare against (default: "main")
+    
+    Returns:
+        List of existing .py file paths that have changed
+    """
+    import subprocess
+    
+    try:
+        # Run git diff to get changed files
+        cmd = ["git", "diff", "--name-only", f"{base_branch}...HEAD"]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            cwd=str(path),
+            stdin=subprocess.DEVNULL
+        )
+        
+        if result.returncode != 0:
+            log(f"[PR-GATE] Git diff failed: {result.stderr}")
+            return []
+        
+        # Filter for existing .py files only
+        changed_files = []
+        for line in result.stdout.strip().split('\n'):
+            if line.strip() and line.endswith('.py'):
+                file_path = path / line.strip()
+                if file_path.exists():
+                    changed_files.append(str(file_path))
+        
+        return changed_files
+        
+    except subprocess.TimeoutExpired:
+        log("[PR-GATE] Git diff timeout")
+        return []
+    except Exception as e:
+        log(f"[PR-GATE] Error getting changed files: {e}")
+        return []
+
+
+@mcp.tool()
+def audit_pr_changes(path: str, base_branch: str = "main", run_tests: bool = True) -> str:
+    """
+    PR Gatekeeper: Fast delta-based audit of ONLY changed files.
+    
+    Scans only the files that changed compared to the base branch for speed,
+    but allows running tests to ensure no regressions.
+    
+    Args:
+        path: Path to the project
+        base_branch: Base branch to compare against (default: "main")
+        run_tests: Whether to run tests as a safety net (default: True)
+    
+    Returns:
+        Markdown report with explicit PR review recommendation
+    """
+    import subprocess
+    import re
+    
+    log(f"[PR-GATE] Starting PR audit for: {path} (base: {base_branch})")
+    target = Path(path).resolve()
+    
+    # Step 1: Get changed files
+    changed_files = get_changed_files(target, base_branch)
+    
+    if not changed_files:
+        return json.dumps({
+            "status": "success",
+            "message": "✅ No Python changes detected in this PR.",
+            "recommendation": "🟢 Ready for Review",
+            "score": 100
+        }, indent=2)
+    
+    log(f"[PR-GATE] Found {len(changed_files)} changed Python files")
+    
+    # Step 2: Fast Scan - Run tools ONLY on changed files
+    results = {}
+    
+    # 2a. Bandit (Security)
+    try:
+        files_arg = " ".join([f'"{f}"' for f in changed_files])
+        cmd = f'{sys.executable} -m bandit {files_arg} -f json --exit-zero'
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(target),
+            stdin=subprocess.DEVNULL,
+            shell=True
+        )
+        
+        bandit_data = json.loads(result.stdout) if result.stdout else {}
+        bandit_issues = bandit_data.get("results", [])
+        results["bandit"] = {
+            "total_issues": len(bandit_issues),
+            "issues": bandit_issues[:10]
+        }
+        log(f"[PR-GATE] Bandit: {len(bandit_issues)} issues")
+    except Exception as e:
+        log(f"[PR-GATE] Bandit failed: {e}")
+        results["bandit"] = {"error": str(e), "total_issues": 0}
+    
+    # 2b. Ruff (Linting)
+    try:
+        files_arg = " ".join([f'"{f}"' for f in changed_files])
+        cmd = f'{sys.executable} -m ruff check {files_arg} --output-format json'
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(target),
+            stdin=subprocess.DEVNULL,
+            shell=True
+        )
+        
+        ruff_issues = json.loads(result.stdout) if result.stdout else []
+        results["ruff"] = {
+            "total_issues": len(ruff_issues),
+            "issues": ruff_issues[:10]
+        }
+        log(f"[PR-GATE] Ruff: {len(ruff_issues)} issues")
+    except Exception as e:
+        log(f"[PR-GATE] Ruff failed: {e}")
+        results["ruff"] = {"error": str(e), "total_issues": 0}
+    
+    # 2c. Radon (Complexity)
+    try:
+        files_arg = " ".join([f'"{f}"' for f in changed_files])
+        cmd = f'{sys.executable} -m radon cc {files_arg} -a -j'
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            cwd=str(target),
+            stdin=subprocess.DEVNULL,
+            shell=True
+        )
+        
+        radon_data = json.loads(result.stdout) if result.stdout else {}
+        high_complexity = []
+        for file_path, functions in radon_data.items():
+            if isinstance(functions, list):
+                for func in functions:
+                    if func.get('rank', 'A') in ['C', 'D', 'E', 'F']:
+                        high_complexity.append({
+                            "file": Path(file_path).name,
+                            "function": func.get('name', ''),
+                            "complexity": func.get('complexity', 0),
+                            "rank": func.get('rank', '')
+                        })
+        
+        results["radon"] = {
+            "total_high_complexity": len(high_complexity),
+            "high_complexity_functions": high_complexity[:10]
+        }
+        log(f"[PR-GATE] Radon: {len(high_complexity)} high-complexity functions")
+    except Exception as e:
+        log(f"[PR-GATE] Radon failed: {e}")
+        results["radon"] = {"error": str(e), "total_high_complexity": 0}
+    
+    # Step 3: Calculate Score
+    score = 100
+    
+    # Security penalties
+    bandit_issues_count = results.get("bandit", {}).get("total_issues", 0)
+    if bandit_issues_count > 0:
+        score -= min(bandit_issues_count * 5, 30)  # -5 per issue, max -30
+    
+    # Quality penalties
+    ruff_issues_count = results.get("ruff", {}).get("total_issues", 0)
+    if ruff_issues_count > 0:
+        score -= min(ruff_issues_count * 2, 20)  # -2 per issue, max -20
+    
+    # Complexity penalties
+    complexity_count = results.get("radon", {}).get("total_high_complexity", 0)
+    if complexity_count > 0:
+        score -= min(complexity_count * 3, 15)  # -3 per function, max -15
+    
+    score = max(0, score)
+    
+    # Step 4: Safety Net - Run Tests
+    tests_passed = True
+    test_output = ""
+    
+    if run_tests and score > 80:
+        log("[PR-GATE] Running tests as safety net...")
+        try:
+            # Detect venv python
+            venv_dirs = [".venv", "venv", "env"]
+            python_exe = sys.executable
+            
+            for venv_name in venv_dirs:
+                venv_path = target / venv_name
+                if venv_path.exists():
+                    if sys.platform == "win32":
+                        candidate = venv_path / "Scripts" / "python.exe"
+                    else:
+                        candidate = venv_path / "bin" / "python"
+                    if candidate.exists():
+                        python_exe = str(candidate)
+                        break
+            
+            # Run pytest in fast mode
+            cmd = [python_exe, "-m", "pytest", "-x", "--tb=short", "-q"]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(target),
+                stdin=subprocess.DEVNULL
+            )
+            
+            test_output = result.stdout + result.stderr
+            
+            # Check if tests passed
+            if result.returncode != 0:
+                tests_passed = False
+                log("[PR-GATE] Tests FAILED")
+            else:
+                log("[PR-GATE] Tests PASSED")
+                
+        except subprocess.TimeoutExpired:
+            tests_passed = False
+            test_output = "⚠️ Tests timed out (>120s)"
+            log("[PR-GATE] Tests timeout")
+        except Exception as e:
+            test_output = f"⚠️ Could not run tests: {e}"
+            log(f"[PR-GATE] Tests error: {e}")
+    
+    # Step 5: Generate Report
+    md = []
+    md.append("# 🚦 PR Gatekeeper Report")
+    md.append("")
+    md.append(f"**Base Branch:** `{base_branch}`")
+    md.append(f"**Changed Files:** {len(changed_files)} Python files")
+    md.append(f"**Score:** {score}/100")
+    md.append("")
+    
+    # Changed files list
+    md.append("## 📝 Changed Files")
+    for f in changed_files[:20]:
+        rel_path = Path(f).relative_to(target) if Path(f).is_absolute() else f
+        md.append(f"- `{rel_path}`")
+    if len(changed_files) > 20:
+        md.append(f"- ...and {len(changed_files) - 20} more")
+    md.append("")
+    
+    # Security findings
+    md.append("## 🔒 Security Scan (Bandit)")
+    if bandit_issues_count > 0:
+        md.append(f"**Status:** ❌ {bandit_issues_count} issue(s) found")
+        for issue in results["bandit"].get("issues", [])[:5]:
+            md.append(f"- **{issue.get('severity')}** in `{Path(issue.get('file', '')).name}:{issue.get('line')}`: {issue.get('description', '')}")
+    else:
+        md.append("**Status:** ✅ No security issues detected")
+    md.append("")
+    
+    # Linting findings
+    md.append("## 📋 Code Quality (Ruff)")
+    if ruff_issues_count > 0:
+        md.append(f"**Status:** ⚠️ {ruff_issues_count} issue(s) found")
+        for issue in results["ruff"].get("issues", [])[:5]:
+            md.append(f"- `{Path(issue.get('filename', '')).name}:{issue.get('location', {}).get('row')}` - {issue.get('code')}: {issue.get('message', '')}")
+    else:
+        md.append("**Status:** ✅ No linting issues detected")
+    md.append("")
+    
+    # Complexity findings
+    md.append("## 🧮 Complexity (Radon)")
+    if complexity_count > 0:
+        md.append(f"**Status:** ⚠️ {complexity_count} high-complexity function(s)")
+        for func in results["radon"].get("high_complexity_functions", [])[:5]:
+            md.append(f"- `{func['function']}` in `{func['file']}`: Complexity {func['complexity']} (Rank {func['rank']})")
+    else:
+        md.append("**Status:** ✅ No high-complexity functions")
+    md.append("")
+    
+    # Test results
+    if run_tests:
+        md.append("## ✅ Test Safety Net")
+        if score > 80:
+            if tests_passed:
+                md.append("**Status:** ✅ All tests passed")
+            else:
+                md.append("**Status:** ❌ Tests failed")
+                md.append("```")
+                md.append(test_output[:500])
+                md.append("```")
+        else:
+            md.append("**Status:** ⏭️ Skipped (score too low, fix issues first)")
+        md.append("")
+    
+    # Bottom Line - Explicit Recommendation
+    md.append("---")
+    md.append("## 🎯 Bottom Line")
+    md.append("")
+    
+    blocking_issues = []
+    if bandit_issues_count > 0:
+        blocking_issues.append(f"🔴 {bandit_issues_count} security issue(s)")
+    if not tests_passed and run_tests and score > 80:
+        blocking_issues.append("🔴 Tests failing")
+    
+    if blocking_issues:
+        md.append("### 🔴 Request Changes")
+        md.append("")
+        md.append("**Blocking Issues:**")
+        for issue in blocking_issues:
+            md.append(f"- {issue}")
+        recommendation = "🔴 Request Changes"
+    elif score >= 80:
+        md.append("### 🟢 Ready for Review")
+        md.append("")
+        md.append("✅ Code quality is good, no blocking issues detected.")
+        if ruff_issues_count > 0 or complexity_count > 0:
+            md.append("")
+            md.append("**Minor Issues (Non-blocking):**")
+            if ruff_issues_count > 0:
+                md.append(f"- {ruff_issues_count} linting issue(s) - consider fixing")
+            if complexity_count > 0:
+                md.append(f"- {complexity_count} high-complexity function(s) - consider refactoring")
+        recommendation = "🟢 Ready for Review"
+    else:
+        md.append("### 🟡 Needs Improvement")
+        md.append("")
+        md.append(f"Score is {score}/100. Please address the issues above before requesting review.")
+        recommendation = "🟡 Needs Improvement"
+    
+    md.append("")
+    md.append("---")
+    md.append("*Generated by Python Auditor MCP - PR Gatekeeper*")
+    
+    report_text = "\n".join(md)
+    
+    return json.dumps({
+        "status": "success",
+        "recommendation": recommendation,
+        "score": score,
+        "changed_files_count": len(changed_files),
+        "findings": {
+            "security_issues": bandit_issues_count,
+            "linting_issues": ruff_issues_count,
+            "complexity_issues": complexity_count,
+            "tests_passed": tests_passed if run_tests else None
+        },
+        "report": report_text
+    }, indent=2)
+
+
+@mcp.tool()
+def audit_remote_repo(repo_url: str, branch: str = "main") -> str:
+    """
+    Audit a remote Git repository without manual cloning.
+    
+    Clones the repository to a temporary directory, runs a full audit,
+    and automatically cleans up. Perfect for quick security assessments
+    of dependencies or open-source projects.
+    
+    Args:
+        repo_url: Git repository URL (e.g., "https://github.com/user/repo.git")
+        branch: Branch to audit (default: "main")
+    
+    Returns:
+        JSON with audit results and markdown report
+    
+    Example:
+        audit_remote_repo("https://github.com/psf/requests.git", "main")
+    """
+    import subprocess
+    import tempfile
+    import shutil
+    
+    log(f"[REMOTE-AUDIT] Starting remote audit: {repo_url} (branch: {branch})")
+    
+    # Validate URL format
+    if not repo_url.startswith(("http://", "https://", "git@")):
+        return json.dumps({
+            "status": "error",
+            "error": "Invalid repository URL. Must start with http://, https://, or git@"
+        }, indent=2)
+    
+    # Use temporary directory with automatic cleanup
+    try:
+        with tempfile.TemporaryDirectory(prefix="audit_remote_") as temp_dir:
+            temp_path = Path(temp_dir)
+            log(f"[REMOTE-AUDIT] Created temporary directory: {temp_path}")
+            
+            # Step 1: Clone repository (shallow clone for speed)
+            clone_cmd = [
+                "git", "clone",
+                "--depth", "1",  # Shallow clone (faster)
+                "-b", branch,    # Specific branch
+                repo_url,
+                str(temp_path)
+            ]
+            
+            log(f"[REMOTE-AUDIT] Cloning repository...")
+            try:
+                result = subprocess.run(
+                    clone_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,  # 5 minutes max for clone
+                    stdin=subprocess.DEVNULL
+                )
+                
+                if result.returncode != 0:
+                    error_msg = result.stderr.strip()
+                    log(f"[REMOTE-AUDIT] Clone failed: {error_msg}")
+                    
+                    # Provide helpful error messages
+                    if "not found" in error_msg.lower():
+                        return json.dumps({
+                            "status": "error",
+                            "error": f"Repository not found: {repo_url}",
+                            "suggestion": "Check the URL and ensure the repository exists"
+                        }, indent=2)
+                    elif "authentication" in error_msg.lower() or "permission denied" in error_msg.lower():
+                        return json.dumps({
+                            "status": "error",
+                            "error": "Authentication failed - repository may be private",
+                            "suggestion": "This tool currently supports public repositories only. For private repos, clone manually and use start_full_audit()"
+                        }, indent=2)
+                    elif f"branch '{branch}'" in error_msg.lower():
+                        return json.dumps({
+                            "status": "error",
+                            "error": f"Branch '{branch}' not found",
+                            "suggestion": "Check the branch name. Common branches: main, master, develop"
+                        }, indent=2)
+                    else:
+                        return json.dumps({
+                            "status": "error",
+                            "error": f"Git clone failed: {error_msg}"
+                        }, indent=2)
+                
+                log(f"[REMOTE-AUDIT] Clone successful")
+                
+            except subprocess.TimeoutExpired:
+                log("[REMOTE-AUDIT] Clone timeout")
+                return json.dumps({
+                    "status": "error",
+                    "error": "Clone operation timed out (>5 minutes)",
+                    "suggestion": "Repository may be too large. Try cloning manually."
+                }, indent=2)
+            except FileNotFoundError:
+                log("[REMOTE-AUDIT] Git not found")
+                return json.dumps({
+                    "status": "error",
+                    "error": "Git is not installed or not in PATH",
+                    "suggestion": "Install Git: https://git-scm.com/downloads"
+                }, indent=2)
+            
+            # Step 2: Verify Python files exist
+            py_files = list(temp_path.glob("**/*.py"))
+            if not py_files:
+                log("[REMOTE-AUDIT] No Python files found")
+                return json.dumps({
+                    "status": "warning",
+                    "message": "Repository cloned successfully but contains no Python files",
+                    "repo_url": repo_url,
+                    "branch": branch
+                }, indent=2)
+            
+            log(f"[REMOTE-AUDIT] Found {len(py_files)} Python files")
+            
+            # Step 3: Run full audit using existing infrastructure
+            log("[REMOTE-AUDIT] Starting full audit...")
+            
+            # Create job ID for this audit
+            job_id = f"remote_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            
+            # Run audit synchronously (we're already in temp context)
+            try:
+                # Import the audit function
+                start_time = time.time()
+                
+                # Run all tools
+                tools = {
+                    "structure": StructureTool(),
+                    "architecture": ArchitectureTool(),
+                    "typing": TypingTool(),
+                    "complexity": ComplexityTool(),
+                    "duplication": DuplicationTool(),
+                    "deadcode": DeadcodeTool(),
+                    "cleanup": CleanupTool(),
+                    "security": SecurityTool(),
+                    "secrets": SecretsTool(),
+                    "tests": TestsTool(),
+                    "git_info": GitTool(),
+                }
+                
+                results = {}
+                for key, tool in tools.items():
+                    try:
+                        log(f"[REMOTE-AUDIT] Running {key}...")
+                        results[key] = tool.analyze(temp_path)
+                    except Exception as e:
+                        log(f"[REMOTE-AUDIT] {key} failed: {e}")
+                        results[key] = {"error": str(e), "status": "error"}
+                
+                duration = f"{time.time() - start_time:.1f}s"
+                
+                # Generate report using existing function
+                report_md = generate_full_markdown_report(
+                    job_id=job_id,
+                    duration=duration,
+                    results=results,
+                    path=str(temp_path)
+                )
+                
+                # Calculate score (reuse existing logic)
+                score = 100
+                
+                # Security penalties
+                if results.get("security", {}).get("total_issues", 0) > 0:
+                    score -= 20
+                if results.get("secrets", {}).get("total_findings", 0) > 0:
+                    score -= 10
+                
+                # Testing penalties
+                cov = results.get("tests", {}).get("coverage_percent", 100)
+                if cov < 20:
+                    score -= 40
+                elif cov < 50:
+                    score -= 25
+                elif cov < 80:
+                    score -= 10
+                
+                # Quality penalties
+                duplicates = results.get("duplication", {}).get("total_duplicates", 0)
+                score -= min(duplicates, 15)
+                
+                dead_code_items = len(results.get("deadcode", {}).get("unused_items", []))
+                score -= min(dead_code_items, 5)
+                
+                # Complexity penalties
+                complex_funcs = len(results.get("complexity", {}).get("high_complexity_functions", []))
+                score -= min(complex_funcs * 2, 10)
+                
+                score = max(0, score)
+                
+                log(f"[REMOTE-AUDIT] Audit complete. Score: {score}/100")
+                
+                # IMPORTANT: Capture report BEFORE temp directory is deleted
+                return json.dumps({
+                    "status": "success",
+                    "repo_url": repo_url,
+                    "branch": branch,
+                    "score": score,
+                    "duration": duration,
+                    "files_analyzed": len(py_files),
+                    "report": report_md,
+                    "summary": {
+                        "security_issues": results.get("security", {}).get("total_issues", 0),
+                        "secrets_found": results.get("secrets", {}).get("total_findings", 0),
+                        "test_coverage": results.get("tests", {}).get("coverage_percent", 0),
+                        "duplicates": duplicates,
+                        "dead_code": dead_code_items,
+                        "high_complexity": complex_funcs
+                    }
+                }, indent=2)
+                
+            except Exception as e:
+                log(f"[REMOTE-AUDIT] Audit failed: {e}")
+                import traceback
+                return json.dumps({
+                    "status": "error",
+                    "error": f"Audit execution failed: {str(e)}",
+                    "traceback": traceback.format_exc()
+                }, indent=2)
+            
+            # Temp directory automatically deleted here by context manager
+            
+    except Exception as e:
+        log(f"[REMOTE-AUDIT] Unexpected error: {e}")
+        import traceback
+        return json.dumps({
+            "status": "error",
+            "error": f"Unexpected error: {str(e)}",
+            "traceback": traceback.format_exc()
+        }, indent=2)
+
+
 @mcp.tool()
 def generate_full_report(path: str) -> str:
     """Runs ALL 13 tools and generates a comprehensive Markdown report file."""

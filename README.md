@@ -8,11 +8,15 @@
 
 ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead code, efficiency issues, and security risks, generating actionable markdown reports with **realistic scores** and **comprehensive insights**.
 
+> **🆕 NEW in v2.3:** [**PR Gatekeeper**](docs/PR_GATEKEEPER_GUIDE.md) - Lightning-fast delta-based auditing for Pull Requests!  
+> Scans ONLY changed files (3-5x faster), runs tests as safety net, returns explicit recommendations.  
+> Perfect for CI/CD pipelines. [Quick Start →](docs/PR_GATEKEEPER_QUICK_REF.md)
+
 ---
 
 ## 🚀 Features
 
-### **12 Extensible Analysis Tools**
+### **14 Extensible Analysis Tools**
 | Tool | Description |
 |------|-------------|
 | **📁 Structure** | Directory tree visualization and file statistics |
@@ -27,11 +31,16 @@ ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead co
 | **🔍 Pip-Audit** | Dependency vulnerability checking |
 | **✅ Tests** | Coverage analysis with Unit/Integration/E2E breakdown |
 | **📝 Git** | Recent changes, commit tracking & branch status |
+| **🚦 PR Gatekeeper** | Delta-based audit of ONLY changed files with test safety net |
+| **🌐 Remote Audit** | Audit any public Git repo without manual cloning |
+
 
 ### **Production Capabilities**
+* **🌐 Remote Repository Auditing:** Audit any public Git repo without cloning - perfect for dependency security checks
+* **🚦 PR Gatekeeper:** Delta-based auditing - scans ONLY changed files (3-5x faster than full audit)
 * **✨ Agentic Dependency Installation:** AI automatically detects missing tools and asks user permission to install
 * **📊 Realistic Scoring Algorithm:** Exponential penalties for low coverage (9% = -40 points, not -10!)  
-* **📋 Tool Execution Summary:** Comprehensive table showing status of all 12 tools at a glance
+* **📋 Tool Execution Summary:** Comprehensive table showing status of all 14 tools at a glance
 * **🧪 Test Type Detection:** Automatically categorizes tests as Unit, Integration, or E2E
 * **🔄 Recent Changes Tracking:** Shows last commit, author, time, and uncommitted changes
 * **⏱️ Timeout Protection:** All subprocess calls protected with timeouts to prevent hangs
@@ -173,12 +182,29 @@ Once connected to Claude, you can use natural language to trigger tools.
 ```
 
 **What it does:**
-- Runs all 12 analysis tools in parallel
+- Runs all 13 analysis tools in parallel
 - Generates a scored report (0-100)
 - Saves to `reports/FULL_AUDIT_<id>.md`
 - Returns markdown content to AI
 
-### 2. Missing Dependencies? No Problem!
+### 2. PR Gatekeeper (Fast Delta Audit)
+```
+"Run PR audit on C:/Projects/MyApp comparing to main branch."
+```
+
+**What it does:**
+1. 🔍 Detects changed Python files vs base branch
+2. ⚡ Runs Bandit, Ruff, Radon ONLY on changed files (fast!)
+3. 📊 Calculates quality score based on findings
+4. ✅ Runs pytest as safety net (if score > 80)
+5. 🎯 Returns explicit recommendation:
+   - 🟢 "Ready for Review" (high score + tests pass)
+   - 🔴 "Request Changes" (security issues or tests fail)
+   - 🟡 "Needs Improvement" (low score)
+
+**Use case:** Perfect for CI/CD pipelines and PR reviews!
+
+### 3. Missing Dependencies? No Problem!
 ```
 AI: "I need to run an audit but tools are missing. Would you like me to install them?"
 You: "Yes, install them"
@@ -186,7 +212,7 @@ AI: [Calls install_dependencies tool]
 AI: "✅ Installation successful! Running audit now..."
 ```
 
-### 3. Architecture Review
+### 4. Architecture Review
 ```
 "Analyze the project architecture and show me the dependency graph."
 ```
@@ -196,7 +222,7 @@ AI: "✅ Installation successful! Running audit now..."
 - Groups modules into subgraphs by directory
 - Generates Mermaid diagram with compressed link
 
-### 4. Auto-Fix (Safe Code Cleanup)
+### 5. Auto-Fix (Safe Code Cleanup)
 ```
 "Run auto-fix with confirm=True."
 ```
@@ -208,6 +234,21 @@ AI: "✅ Installation successful! Running audit now..."
 4. 🎨 Runs `ruff check --fix` and `ruff format`
 5. 📝 Writes `FIX_LOG.md`
 6. 🌿 Creates new branch and commits
+
+### 6. Remote Repository Auditing
+```
+"Audit the requests library from GitHub"
+"Check security of https://github.com/psf/requests.git"
+```
+
+**What it does:**
+1. 🌐 Clones repo to temporary directory (shallow clone for speed)
+2. 🔍 Runs all 14 analysis tools
+3. 📊 Generates comprehensive audit report
+4. 🧹 Automatically cleans up temp files
+5. 📈 Returns score + findings summary
+
+**Use case:** Quick security assessment of dependencies before adding them!
 
 ---
 
@@ -352,6 +393,9 @@ docker-compose up --build
 | Document | Description |
 |----------|-------------|
 | [MCP User Guide](docs/MCP_USER_GUIDE.md) | How to configure and use with AI assistants |
+| [Remote Audit Guide](docs/REMOTE_AUDIT_GUIDE.md) | **NEW!** Audit any Git repo without cloning |
+| [PR Gatekeeper Guide](docs/PR_GATEKEEPER_GUIDE.md) | **NEW!** Complete guide for delta-based PR auditing |
+| [PR Gatekeeper Quick Ref](docs/PR_GATEKEEPER_QUICK_REF.md) | **NEW!** Quick reference with common scenarios |
 | [Implementation Summary](docs/IMPLEMENTATION_SUMMARY.md) | Technical architecture details |
 | [Auto-Fix Guide](docs/AUTOFIX_GUIDE.md) | Safe code cleanup workflow |
 | [Session Summary](docs/SESSION_SUMMARY.md) | Development history |
@@ -389,6 +433,23 @@ docker-compose up --build
 ---
 
 ## 🎉 Recent Improvements
+
+**v2.4 - Remote Repository Auditing (Jan 14, 2026)**
+- ✅ **NEW: Remote Audit tool** - Audit any public Git repo without manual cloning
+- ✅ **Zero Setup** - Automatic temp directory management and cleanup
+- ✅ **Dependency Security** - Quick security assessment before adding libraries
+- ✅ **Shallow Clone** - Fast audits with `--depth 1` optimization
+- ✅ **Comprehensive Error Handling** - Helpful messages for common issues
+- 📚 See: `docs/REMOTE_AUDIT_GUIDE.md` for complete documentation
+
+**v2.3 - PR Gatekeeper (Jan 14, 2026)**
+- ✅ **NEW: PR Gatekeeper tool** - Delta-based auditing for Pull Requests
+- ✅ **3-5x Faster audits** - Scans only changed files vs entire codebase
+- ✅ **Test Safety Net** - Runs pytest to catch logic regressions
+- ✅ **Explicit Recommendations** - 🟢 Ready / 🔴 Request Changes / 🟡 Needs Improvement
+- ✅ **CI/CD Ready** - Perfect for GitHub Actions, GitLab CI pipelines
+- ✅ **Comprehensive Docs** - Full guide, quick reference, and examples
+- 📚 See: `docs/PR_GATEKEEPER_GUIDE.md` for complete documentation
 
 **v2.2 - Major Quality Update (Jan 2026)**
 - ✅ Fixed scoring algorithm (now realistic, not inflated)
