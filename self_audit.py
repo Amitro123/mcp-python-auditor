@@ -34,7 +34,7 @@ async def run_analysis(agent, project_path):
 
 def run_self_audit():
     project_path = Path(".")
-    print(f"🚀 Starting Self-Audit on {project_path.absolute()}...")
+    print(f"[*] Starting Self-Audit on {project_path.absolute()}...")
     
     reports_dir = project_path / "reports"
     agent = AnalyzerAgent(reports_dir)
@@ -57,14 +57,14 @@ def run_self_audit():
     if structure_result and structure_result.success:
          total_files = structure_result.data.get('total_files', 0)
          
-    print(f"📂 Total Files Scanned: {total_files}")
+    print(f"[FILES] Total Files Scanned: {total_files}")
     if total_files > 150:
-        print("❌ FAIL: File count too high! Exclusions might not be working.")
+        print("[FAIL] File count too high! Exclusions might not be working.")
     else:
-        print("✅ PASS: File count is within expected range (< 150).")
+        print("[PASS] File count is within expected range (< 150).")
 
     # 2. Tool Execution Status
-    print("\n🛠️ Tool Execution Summary:")
+    print("\n[TOOLS] Tool Execution Summary:")
     failed_tools = []
     
     print(f"{'Tool':<15} | {'Status':<10} | {'Time (s)':<10}")
@@ -84,12 +84,12 @@ def run_self_audit():
                 print(f"  -> Error: {tool_res.errors}")
             
     if failed_tools:
-        print(f"\n❌ FAIL: The following tools failed: {failed_tools}")
+        print(f"\n[FAIL] The following tools failed: {failed_tools}")
     else:
-        print("\n✅ PASS: All tools ran successfully (or were safely skipped).")
+        print("\n[PASS] All tools ran successfully (or were safely skipped).")
 
     # 3. False Positive Check (site-packages)
-    print("\n🔍 Checking for False Positives (site-packages/venv)...")
+    print("\n[CHECK] Checking for False Positives (site-packages/venv)...")
     false_positives = []
     
     # Recursive search on the dictionaries
@@ -114,15 +114,15 @@ def run_self_audit():
     search_issues(tools_data_dict)
     
     if false_positives:
-        print(f"❌ FAIL: Found {len(false_positives)} issues in ignored directories:")
+        print(f"[FAIL] Found {len(false_positives)} issues in ignored directories:")
         for fp in false_positives[:5]:
             print(f"  - {fp}")
     else:
-        print("✅ PASS: Zero issues found in ignored directories.")
+        print("[PASS] Zero issues found in ignored directories.")
 
     # Check Report Generation
     if audit_result.report_path:
-        print(f"\n📄 Report generated successfully: {audit_result.report_path}")
+        print(f"\n[REPORT] Report generated successfully: {audit_result.report_path}")
         # Copy content to SELF_AUDIT_REPORT.md for easy reading
         try:
             import shutil
@@ -131,7 +131,7 @@ def run_self_audit():
         except:
             pass
     else:
-        print("\n❌ FAIL: Report was not generated.")
+        print("\n[FAIL] Report was not generated.")
 
 if __name__ == "__main__":
     run_self_audit()

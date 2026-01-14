@@ -32,16 +32,23 @@ class ReportGenerator:
         project_path: str,
         score: int,
         tool_results: Dict[str, Any],
-        timestamp: datetime
+        timestamp: datetime,
+        scanned_files: List[str] = None
     ) -> str:
-        """Generate an Enterprise-grade actionable markdown report."""
+        """Generate an Enterprise-grade actionable markdown report with integrity validation."""
+        from app.core.audit_validator import validate_report_integrity
+        
         report_path = self.reports_dir / f"{report_id}.md"
         
+        # Generate main report content
+        report_content = []
+        
+        # Enterprise Header
+        report_content.append(f"# Project Audit: {Path(project_path).name}\n")
+        report_content.append(f"**Score:** {score}/100 → **Target: 90/100** (via 3 fixes)\n\n")
+        
+        # Build report sections in memory first
         with open(report_path, 'w', encoding='utf-8') as f:
-            # Enterprise Header
-            f.write(f"# Project Audit: {Path(project_path).name}\n")
-            f.write(f"**Score:** {score}/100 → **Target: 90/100** (via 3 fixes)\n\n")
-            
             # 📊 TOOL EXECUTION SUMMARY (NEW - Full Visibility)
             self._write_tool_execution_summary(f, tool_results)
             
@@ -106,6 +113,21 @@ class ReportGenerator:
                 _write_complexity_section(f, tool_results['complexity'])
             else:
                 self._write_mandatory_complexity(f, tool_results.get('complexity', {}))
+        
+        # 🛡️ APPEND INTEGRITY VALIDATION (NEW)
+        if scanned_files:
+            # Read the generated report
+            with open(report_path, 'r', encoding='utf-8') as f:
+                report_text = f.read()
+            
+            # Generate validation section
+            validation_section = validate_report_integrity(report_text, scanned_files)
+            
+            # Append validation to report
+            with open(report_path, 'a', encoding='utf-8') as f:
+                f.write(validation_section)
+            
+            logger.info(f"✅ Integrity validation appended ({len(scanned_files)} files verified)")
         
         logger.info(f"Enterprise Report generated: {report_path}")
         return str(report_path)

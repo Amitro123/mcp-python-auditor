@@ -1,4 +1,4 @@
-"""Code duplication detection tool."""
+"""Code duplication detection tool with Safety-First Execution."""
 import ast
 import hashlib
 from pathlib import Path
@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Tuple
 from collections import defaultdict
 from rapidfuzz import fuzz
 from app.core.base_tool import BaseTool
+from app.core.command_chunker import filter_python_files, validate_file_list
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,12 +19,17 @@ class DuplicationTool(BaseTool):
     def description(self) -> str:
         return "Detects duplicate functions and code patterns using AST and fuzzy matching"
     
-    def analyze(self, project_path: Path) -> Dict[str, Any]:
+    def analyze(self, project_path: Path, file_list: List[str] = None) -> Dict[str, Any]:
         """
-        Analyze code for duplicates.
+        Analyze code for duplicates using explicit file list.
+        
+        SAFETY-FIRST EXECUTION:
+        1. Guard Clause: Empty file list check
+        2. Guard Clause: Extension filter (only .py files)
         
         Args:
             project_path: Path to the project directory
+            file_list: Optional list of absolute file paths to scan
             
         Returns:
             Dictionary with duplicate code information
@@ -31,9 +37,25 @@ class DuplicationTool(BaseTool):
         if not self.validate_path(project_path):
             return {"error": "Invalid path"}
         
+        # STEP 1: GUARD CLAUSE - Empty Check
+        if file_list is not None and not file_list:
+            logger.warning("Duplication: Empty file list provided, skipping scan")
+            return {
+                "duplicates": [],
+                "total_duplicates": 0,
+                "total_functions_analyzed": 0
+            }
+        
+        # STEP 2: GUARD CLAUSE - Extension Filter
+        if file_list:
+            file_list = filter_python_files(file_list)
+            if not validate_file_list(file_list, "Duplication"):
+                return {"error": "Invalid file list (contains excluded paths or empty)"}
+            logger.info(f"✅ Duplication: Analyzing {len(file_list)} Python files (explicit list)")
+        
         try:
             # Extract all functions from the project
-            functions = self._extract_functions(project_path)
+            functions = self._extract_functions(project_path, file_list)
             
             # Find duplicates
             duplicates = self._find_duplicates(functions)
@@ -47,12 +69,18 @@ class DuplicationTool(BaseTool):
             logger.error(f"Duplication analysis failed: {e}")
             return {"error": str(e)}
     
-    def _extract_functions(self, path: Path) -> List[Dict[str, Any]]:
+    def _extract_functions(self, path: Path, file_list: List[str] = None) -> List[Dict[str, Any]]:
         """Extract all functions from Python files."""
         functions = []
         
-        # Use centralized file walker from BaseTool
-        for py_file in self.walk_project_files(path):
+        # Use explicit file list if provided
+        if file_list:
+            py_files = [Path(f) for f in file_list if f.endswith('.py')]
+        else:
+            # Fallback: Use centralized file walker from BaseTool
+            py_files = list(self.walk_project_files(path))
+        
+        for py_file in py_files:
             try:
                 with open(py_file, 'r', encoding='utf-8') as f:
                     content = f.read()

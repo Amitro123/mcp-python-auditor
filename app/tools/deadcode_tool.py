@@ -1,8 +1,9 @@
-"""Dead code detection tool using Vulture."""
+"""Dead code detection tool using Vulture with Safety-First Execution."""
 from pathlib import Path
 from typing import Dict, Any, List
 from app.core.base_tool import BaseTool
 from app.core.subprocess_wrapper import SubprocessWrapper
+from app.core.command_chunker import run_tool_in_chunks, filter_python_files, validate_file_list
 import logging
 import json
 import subprocess
@@ -18,12 +19,18 @@ class DeadcodeTool(BaseTool):
     def description(self) -> str:
         return "Detects unused functions, classes, variables, and imports using Vulture"
     
-    def analyze(self, project_path: Path) -> Dict[str, Any]:
+    def analyze(self, project_path: Path, file_list: List[str] = None) -> Dict[str, Any]:
         """
-        Analyze code for dead/unused code using Vulture.
+        Analyze code for dead/unused code using Vulture with explicit file list.
+        
+        SAFETY-FIRST EXECUTION:
+        1. Guard Clause: Empty file list check
+        2. Guard Clause: Extension filter (only .py files)
+        3. Windows Chunking: Prevent WinError 206
         
         Args:
             project_path: Path to the project directory
+            file_list: Optional list of absolute file paths to scan
             
         Returns:
             Dictionary with dead code information
@@ -31,19 +38,42 @@ class DeadcodeTool(BaseTool):
         if not self.validate_path(project_path):
             return {"error": "Invalid path"}
         
+        # STEP 1: GUARD CLAUSE - Empty Check
+        if file_list is not None and not file_list:
+            logger.warning("Vulture: Empty file list provided, skipping scan")
+            return {
+                "dead_functions": [],
+                "dead_classes": [],
+                "dead_variables": [],
+                "unused_imports": [],
+                "total_dead": 0,
+                "confidence": "skipped",
+                "tool": "vulture"
+            }
+        
+        # STEP 2: GUARD CLAUSE - Extension Filter
+        if file_list:
+            file_list = filter_python_files(file_list)
+            if not validate_file_list(file_list, "Vulture"):
+                return {"error": "Invalid file list (contains excluded paths or empty)"}
+            logger.info(f"✅ Vulture: Analyzing {len(file_list)} Python files (explicit list)")
+        
         try:
-            # Run vulture with JSON output
             # Run vulture with JSON output using subprocess directly to handle exit codes
             # Exit code 0: No dead code found
             # Exit code 1: Dead code found (Valid success for us)
             # Other codes: Error
             try:
-                # Build command with exclusions from centralized blacklist
-                cmd = [sys.executable, '-m', 'vulture', str(project_path), '--min-confidence', '80']
-                
-                # Add each ignored directory as exclusion
-                for ignored_dir in self.IGNORED_DIRECTORIES:
-                    cmd.extend(['--exclude', ignored_dir])
+                # Build command with explicit file list or directory
+                if file_list:
+                    cmd = [sys.executable, '-m', 'vulture', '--min-confidence', '80'] + file_list
+                else:
+                    # Fallback: Build command with exclusions from centralized blacklist
+                    cmd = [sys.executable, '-m', 'vulture', str(project_path), '--min-confidence', '80']
+                    
+                    # Add each ignored directory as exclusion
+                    for ignored_dir in self.IGNORED_DIRECTORIES:
+                        cmd.extend(['--exclude', ignored_dir])
                 
                 result = subprocess.run(
                     cmd,

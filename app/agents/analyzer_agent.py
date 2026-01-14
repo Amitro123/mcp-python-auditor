@@ -11,6 +11,8 @@ import asyncio
 from app.core.tool_registry import registry
 from app.core.report_generator import ReportGenerator
 from app.core.self_healing import SelfHealingAnalyzer
+from app.core.file_discovery import get_project_files
+from app.core.audit_validator import validate_report_integrity
 from app.schemas import ToolResult, AuditResult
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,11 @@ class AnalyzerAgent:
         
         logger.info(f"Starting analysis of {path} (report_id: {report_id})")
         
+        # 🔍 GIT-NATIVE FILE DISCOVERY (NEW)
+        logger.info("Discovering project files using Git-native method...")
+        scanned_files = get_project_files(path)
+        logger.info(f"✅ Discovered {len(scanned_files)} Python files for analysis")
+        
         # Calculate project stats (py_files + size)
         project_stats = self._calculate_project_stats(path)
         py_files_count = project_stats['py_files']
@@ -85,6 +92,9 @@ class AnalyzerAgent:
         
         heavy_tools = {'complexity', 'deadcode', 'duplication'}  # Security MUST always run
         skipped_tools = []
+        
+        # Define tools that support explicit file lists
+        file_list_tools = {'security', 'complexity', 'duplication', 'deadcode'}
         
         # Get tools to run
         if specific_tools:
@@ -112,10 +122,17 @@ class AnalyzerAgent:
                 tool_start = time.time()
                 try:
                     # Use asyncio.to_thread for blocking I/O with timeout
-                    result_data = await asyncio.wait_for(
-                        asyncio.to_thread(tool.analyze, path),
-                        timeout=MAX_TOOL_TIMEOUT
-                    )
+                    # Pass file_list to tools that support it
+                    if name in file_list_tools:
+                        result_data = await asyncio.wait_for(
+                            asyncio.to_thread(tool.analyze, path, scanned_files),
+                            timeout=MAX_TOOL_TIMEOUT
+                        )
+                    else:
+                        result_data = await asyncio.wait_for(
+                            asyncio.to_thread(tool.analyze, path),
+                            timeout=MAX_TOOL_TIMEOUT
+                        )
                     success = 'error' not in result_data
                     errors = [result_data['error']] if 'error' in result_data else []
                     
@@ -178,7 +195,8 @@ class AnalyzerAgent:
                     project_path=str(path),  # Use resolved path
                     score=score,
                     tool_results=results_dict,
-                    timestamp=datetime.now()
+                    timestamp=datetime.now(),
+                    scanned_files=scanned_files  # Pass file list for validation
                 )
                 logger.info(f"Report generated: {report_path}")
             except Exception as e:

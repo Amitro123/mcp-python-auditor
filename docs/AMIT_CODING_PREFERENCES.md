@@ -1,4 +1,4 @@
-# AMIT CODING PREFERENCES v1.2
+# AMIT CODING PREFERENCES v1.3
 Session: 2026-01-04 - Architecture Upgrades (Parallelism + Exclusions + Centralized Config)
 Learned:
 - Graduated phases + tests [memory:56]
@@ -17,3 +17,6 @@ Learned:
 ✅ **Security Tool Exclusions**: Always use `--exclude-files` with patterns like `node_modules/.*`, `dist/.*`, `.*\.min\.js` for detect-secrets, and comma-separated exclusions for bandit.
 ✅ **Centralized Config**: Define `ANALYSIS_EXCLUDES` and `CLEANUP_EXCLUDES` in a central config module. Create helper functions like `get_analysis_excludes_comma()` and `get_analysis_excludes_regex()` for different tool formats.
 ✅ **Security Timeouts**: Set timeouts to 600s (10 min) for analysis tools to handle large/complex projects.
+✅ **Git-Native Discovery**: Always prefer `git ls-files` over `os.walk` for finding source code. It inherently respects `.gitignore` and is faster/more reliable than maintaining manual exclusion lists.
+✅ **Windows Checkpointing**: On Windows, split process arguments into chunks (e.g., batches of 50 files) to avoid `WinError 206` (command line too long) when passing explicit file lists to subprocesses.
+✅ **Guard Clauses**: Analysis tools must have explicit checks for empty file lists and extension mismatches at the start of their `analyze()` method.

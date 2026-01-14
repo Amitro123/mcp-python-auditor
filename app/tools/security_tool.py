@@ -1,4 +1,4 @@
-"""Security scanning tool using Bandit with Smart Target Discovery."""
+"""Security scanning tool using Bandit with Safety-First Execution."""
 import json
 import sys
 import subprocess
@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List
 from app.core.base_tool import BaseTool
+from app.core.command_chunker import run_tool_in_chunks, filter_python_files, validate_file_list
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +18,18 @@ class SecurityTool(BaseTool):
     def description(self) -> str:
         return "Scans code for security vulnerabilities using Bandit (Smart Targeting)."
 
-    def analyze(self, project_path: Path) -> Dict[str, Any]:
+    def analyze(self, project_path: Path, file_list: List[str] = None) -> Dict[str, Any]:
         """
-        Analyze project for security vulnerabilities using smart target discovery.
+        Analyze project for security vulnerabilities using explicit file list.
+        
+        SAFETY-FIRST EXECUTION:
+        1. Guard Clause: Empty file list check
+        2. Guard Clause: Extension filter (only .py files)
+        3. Windows Chunking: Prevent WinError 206
         
         Args:
             project_path: Path to the project directory
+            file_list: Optional list of absolute file paths to scan (from Git discovery)
             
         Returns:
             Dictionary with security findings
@@ -30,64 +37,73 @@ class SecurityTool(BaseTool):
         if not self.validate_path(project_path):
             return {"error": "Invalid path", "status": "error"}
         
-        target_path = Path(project_path).resolve()
+        # STEP 1: GUARD CLAUSE - Empty Check
+        if file_list is not None and not file_list:
+            logger.warning("Bandit: Empty file list provided, skipping scan")
+            return {
+                "tool": "bandit",
+                "status": "skipped",
+                "message": "No files to scan",
+                "files_scanned": 0,
+                "total_issues": 0,
+                "issues": [],
+                "code_security": {"files_scanned": 0, "issues": []}
+            }
         
-        # --- STRATEGY: Smart Target Discovery ---
-        # Instead of letting Bandit walk the whole tree and get stuck in node_modules,
-        # we explicitly tell it which source folders to scan.
+        # STEP 2: GUARD CLAUSE - Extension Filter
+        if file_list:
+            file_list = filter_python_files(file_list)
+            if not validate_file_list(file_list, "Bandit"):
+                return {
+                    "tool": "bandit",
+                    "status": "error",
+                    "error": "Invalid file list (contains excluded paths or empty)",
+                    "files_scanned": 0,
+                    "code_security": {"files_scanned": 0, "issues": []}
+                }
+            logger.info(f"✅ Bandit: Scanning {len(file_list)} Python files (explicit list)")
         
-        known_source_dirs = ["src", "app", "scripts", "lib", "core", "backend", "api"]
-        scan_targets: List[str] = []
+        # Build base command
+        base_cmd = [sys.executable, "-m", "bandit", "-f", "json"]
         
-        # Check which source folders actually exist
-        for folder in known_source_dirs:
-            p = target_path / folder
-            if p.exists() and p.is_dir():
-                scan_targets.append(str(p))
-        
-        # Prepare command arguments
-        exclude_args: List[str] = []
-        
-        if scan_targets:
-            # OPTION A: We found source folders. Scan ONLY them.
-            # This is extremely fast because it bypasses root files and node_modules entirely.
-            logger.info(f"Smart Scan Targets: {scan_targets}")
-            print(f"[BANDIT] Smart Scan Targets: {scan_targets}", file=sys.stderr)
-            targets = scan_targets
-            # No exclude needed because we are pointing directly to clean folders
-        else:
-            # OPTION B: No standard folders found. Fallback to scanning root.
-            # We must be very aggressive with exclusions here.
-            logger.info("No source folders found. Scanning root with strict exclusions.")
-            print("[BANDIT] No source folders found. Scanning root with strict exclusions.", file=sys.stderr)
-            targets = [str(target_path)]
-            exclude_dirs = [
-                "node_modules", "external_libs", "venv", ".venv", "env",
-                "tests", "test", ".git", "__pycache__", ".idea", ".vscode",
-                "dist", "build", "coverage", "site-packages", "htmlcov",
-                ".pytest_cache", ".mypy_cache", ".tox"
-            ]
-            exclude_args = ["-x", ",".join(exclude_dirs)]
-
-        # Construct the Bandit command
-        cmd = [
-            sys.executable, "-m", "bandit",
-            "-r", *targets,
-            "-f", "json"
-        ] + exclude_args
-        
-        logger.info(f"Running: {' '.join(cmd)}")
-
         try:
-            # Run with a 300s timeout (5 minutes - Windows IO can be slow)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            # STEP 3: WINDOWS CHUNKING
+            if file_list:
+                # Use chunking to prevent WinError 206
+                result = run_tool_in_chunks(
+                    base_cmd=base_cmd,
+                    files=file_list,
+                    chunk_size=50,
+                    merge_json=True,
+                    timeout=300
+                )
+            else:
+                # Fallback: Directory scanning (not recommended)
+                logger.warning("⚠️ Bandit: No file list provided, using fallback directory scan")
+                target_path = Path(project_path).resolve()
+                known_source_dirs = ["src", "app", "scripts", "lib", "core", "backend", "api"]
+                scan_targets = []
+                
+                for folder in known_source_dirs:
+                    p = target_path / folder
+                    if p.exists() and p.is_dir():
+                        scan_targets.append(str(p))
+                
+                targets = scan_targets if scan_targets else [str(target_path)]
+                cmd = base_cmd + ["-r"] + targets
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
+            # Parse results
             try:
                 data = json.loads(result.stdout)
                 metrics = data.get("metrics", {})
                 issues = data.get("results", [])
                 
-                total_files = sum(m.get("loc", 0) for m in metrics.values()) if metrics else 0
+                # Calculate files scanned
+                if file_list:
+                    total_files = len(file_list)
+                else:
+                    total_files = sum(m.get("loc", 0) for m in metrics.values()) if metrics else 0
                 
                 # Format issues for report
                 formatted_issues = []
@@ -107,14 +123,12 @@ class SecurityTool(BaseTool):
                     "files_scanned": total_files,
                     "total_issues": len(issues),
                     "issues": formatted_issues,
-                    "scan_targets": targets,
                     "code_security": {
                         "files_scanned": total_files,
                         "issues": formatted_issues
                     }
                 }
             except json.JSONDecodeError:
-                # Bandit writes to stderr if it crashes, or stdout might be empty
                 logger.warning(f"Bandit JSON decode error: {result.stdout[:200]}")
                 return {
                     "status": "error", 
@@ -124,11 +138,10 @@ class SecurityTool(BaseTool):
                 }
 
         except subprocess.TimeoutExpired:
-            logger.error(f"Bandit scan timed out (>60s) on targets: {targets}")
+            logger.error("Bandit scan timed out (>300s)")
             return {
                 "status": "error", 
-                "error": "TIMEOUT: Bandit scan took too long (>60s).",
-                "debug_targets": str(targets),
+                "error": "TIMEOUT: Bandit scan took too long (>300s).",
                 "code_security": {"files_scanned": 0, "issues": []}
             }
         except FileNotFoundError:

@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
+from app.core.file_discovery import get_project_files
 from app.agents.analyzer_agent import AnalyzerAgent
 from app.core.tool_registry import registry
 
@@ -163,7 +164,20 @@ class MCPServer:
                     return {"error": f"Tool not found: {actual_tool_name}"}
                 
                 path = Path(project_path)
-                tool_result = tool.analyze(path)
+                
+                # SAFETY-FIRST: Always use Git-native discovery
+                # Determine if this tool supports explicit file lists
+                file_list_tools = {'security', 'complexity', 'duplication', 'deadcode'}
+                
+                if actual_tool_name in file_list_tools:
+                    # Discover files using the safe engine
+                    logger.info(f"Running {actual_tool_name} with Safety-First execution (Git discovery)")
+                    scanned_files = get_project_files(path)
+                    logger.info(f"Discovered {len(scanned_files)} files to scan")
+                    tool_result = tool.analyze(path, file_list=scanned_files)
+                else:
+                    # Legacy execution for other tools
+                    tool_result = tool.analyze(path)
                 
                 # Format result as text
                 result_text = f"# {actual_tool_name.title()} Analysis\n\n"

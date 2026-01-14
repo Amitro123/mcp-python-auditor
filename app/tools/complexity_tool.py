@@ -1,9 +1,10 @@
-"""Cyclomatic complexity analysis using Radon."""
+"""Cyclomatic complexity analysis using Radon with Safety-First Execution."""
 from pathlib import Path
 from typing import Dict, Any, List
 from app.core.base_tool import BaseTool
 from app.core.subprocess_wrapper import SubprocessWrapper
 from app.core.config import get_analysis_excludes_comma
+from app.core.command_chunker import run_tool_in_chunks, filter_python_files, validate_file_list
 import logging
 import json
 import sys
@@ -18,12 +19,17 @@ class ComplexityTool(BaseTool):
     def description(self) -> str:
         return "Measures cyclomatic complexity and maintainability index using Radon"
     
-    def analyze(self, project_path: Path) -> Dict[str, Any]:
+    def analyze(self, project_path: Path, file_list: List[str] = None) -> Dict[str, Any]:
         """
-        Analyze code complexity using Radon.
+        Analyze code complexity using Radon with explicit file list.
+        
+        SAFETY-FIRST EXECUTION:
+        1. Guard Clause: Empty file list check
+        2. Guard Clause: Extension filter (only .py files)
         
         Args:
             project_path: Path to the project directory
+            file_list: Optional list of absolute file paths to scan
             
         Returns:
             Dictionary with complexity metrics
@@ -31,12 +37,33 @@ class ComplexityTool(BaseTool):
         if not self.validate_path(project_path):
             return {"error": "Invalid path"}
         
+        # STEP 1: GUARD CLAUSE - Empty Check
+        if file_list is not None and not file_list:
+            logger.warning("Radon: Empty file list provided, skipping scan")
+            return {
+                "tool": "radon",
+                "high_complexity_functions": [],
+                "very_high_complexity_functions": [],
+                "total_functions_analyzed": 0,
+                "average_complexity": 0,
+                "average_maintainability": 0,
+                "maintainability_grade": "N/A",
+                "files_analyzed": 0
+            }
+        
+        # STEP 2: GUARD CLAUSE - Extension Filter
+        if file_list:
+            file_list = filter_python_files(file_list)
+            if not validate_file_list(file_list, "Radon"):
+                return {"error": "Invalid file list (contains excluded paths or empty)"}
+            logger.info(f"✅ Radon: Analyzing {len(file_list)} Python files (explicit list)")
+        
         try:
             # Get cyclomatic complexity
-            cc_results = self._get_cyclomatic_complexity(project_path)
+            cc_results = self._get_cyclomatic_complexity(project_path, file_list)
             
             # Get maintainability index
-            mi_results = self._get_maintainability_index(project_path)
+            mi_results = self._get_maintainability_index(project_path, file_list)
             
             # Analyze results
             high_complexity = [
@@ -75,12 +102,18 @@ class ComplexityTool(BaseTool):
             logger.error(f"Complexity analysis failed: {e}")
             return {"error": str(e)}
     
-    def _get_cyclomatic_complexity(self, project_path: Path) -> List[Dict[str, Any]]:
+    def _get_cyclomatic_complexity(self, project_path: Path, file_list: List[str] = None) -> List[Dict[str, Any]]:
         """Get cyclomatic complexity metrics."""
-        # Use centralized exclusion config
-        ignore_patterns = get_analysis_excludes_comma()
+        # Use explicit file list if provided
+        if file_list:
+            cmd = [sys.executable, '-m', 'radon', 'cc', '-j', '-a'] + file_list
+        else:
+            # Fallback: Use centralized exclusion config
+            ignore_patterns = get_analysis_excludes_comma()
+            cmd = [sys.executable, '-m', 'radon', 'cc', str(project_path), '-j', '-a', '-i', ignore_patterns]
+        
         success, stdout, stderr = SubprocessWrapper.run_command(
-            [sys.executable, '-m', 'radon', 'cc', str(project_path), '-j', '-a', '-i', ignore_patterns],
+            cmd,
             cwd=project_path,
             timeout=300,
             check_venv=False
@@ -114,12 +147,18 @@ class ComplexityTool(BaseTool):
             logger.error("Failed to parse radon output")
             return []
     
-    def _get_maintainability_index(self, project_path: Path) -> List[Dict[str, Any]]:
+    def _get_maintainability_index(self, project_path: Path, file_list: List[str] = None) -> List[Dict[str, Any]]:
         """Get maintainability index metrics."""
-        # Use centralized exclusion config
-        ignore_patterns = get_analysis_excludes_comma()
+        # Use explicit file list if provided
+        if file_list:
+            cmd = [sys.executable, '-m', 'radon', 'mi', '-j'] + file_list
+        else:
+            # Fallback: Use centralized exclusion config
+            ignore_patterns = get_analysis_excludes_comma()
+            cmd = [sys.executable, '-m', 'radon', 'mi', str(project_path), '-j', '-i', ignore_patterns]
+        
         success, stdout, stderr = SubprocessWrapper.run_command(
-            [sys.executable, '-m', 'radon', 'mi', str(project_path), '-j', '-i', ignore_patterns],
+            cmd,
             cwd=project_path,
             timeout=300,
             check_venv=False

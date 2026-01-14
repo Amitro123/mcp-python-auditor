@@ -45,27 +45,46 @@ class BaseTool(ABC):
         """Return tool description."""
         pass
     
-    def validate_path(self, path: str | Path) -> bool:
+    def validate_path(self, path: str | Path, project_root: Optional[Path] = None) -> bool:
         """
         Validate path and ensure it's not inside an ignored directory.
         
+        IMPORTANT: This only checks for ignored directories WITHIN the project,
+        not in the absolute path TO the project. This allows projects to be
+        located in system directories like .gemini/scratch.
+        
         Args:
             path: Path to validate (can be string or Path object)
+            project_root: Optional project root to check relative paths
             
         Returns:
             False if path is in an ignored directory, True otherwise
         """
         path = Path(path) if isinstance(path, str) else path
         
-        # Check if path exists and is directory (for project roots)
+        # Check if path exists
         if not path.exists():
             logger.error(f"Path does not exist: {path}")
             return False
         
-        # Check if any part of the path is in the ignored list (case-insensitive)
-        parts = path.parts
+        # If we have a project root, only check parts AFTER the root
+        if project_root:
+            try:
+                # Get the relative path from project root
+                rel_path = path.relative_to(project_root)
+                parts_to_check = rel_path.parts
+            except ValueError:
+                # Path is not relative to project_root, check all parts
+                parts_to_check = path.parts
+        else:
+            # No project root specified, this is likely the project root itself
+            # Only reject if it's a directory that should never be scanned
+            # (but allow the project to BE in a system directory)
+            return True
+        
+        # Check if any part of the RELATIVE path is in the ignored list
         ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
-        for part in parts:
+        for part in parts_to_check:
             if part.lower() in ignored_lower:
                 return False
         
