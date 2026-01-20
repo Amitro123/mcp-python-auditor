@@ -5,8 +5,7 @@ from app.tools.structure_tool import StructureTool
 from app.tools.architecture_tool import ArchitectureTool
 from app.tools.duplication_tool import DuplicationTool
 from app.tools.deadcode_tool import DeadcodeTool
-from app.tools.efficiency_tool import EfficiencyTool
-from app.tools.cleanup_tool import CleanupTool
+
 
 
 @pytest.fixture
@@ -94,25 +93,7 @@ def test_deadcode_tool(sample_project):
     assert isinstance(result['dead_functions'], list)
 
 
-def test_efficiency_tool(sample_project):
-    """Test efficiency analysis tool."""
-    tool = EfficiencyTool()
-    result = tool.analyze(sample_project)
-    
-    assert 'issues' in result
-    assert 'total_issues' in result
-    assert isinstance(result['issues'], list)
 
-
-def test_cleanup_tool(sample_project):
-    """Test cleanup detection tool."""
-    tool = CleanupTool()
-    result = tool.analyze(sample_project)
-    
-    assert 'items' in result
-    assert 'total_size_mb' in result
-    # Should detect __pycache__
-    assert result['total_items'] > 0
 
 
 def test_tool_base_interface():
@@ -121,9 +102,7 @@ def test_tool_base_interface():
         StructureTool(),
         ArchitectureTool(),
         DuplicationTool(),
-        DeadcodeTool(),
-        EfficiencyTool(),
-        CleanupTool()
+        DeadcodeTool()
     ]
     
     for tool in tools:

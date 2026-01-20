@@ -28,7 +28,7 @@ def check_environment_sanity():
             # We try to run '--version' which is fast and harmless
             # capturing output prevents spamming the logs
             subprocess.run(
-                [tool, "--version"], 
+                f"{tool} --version", 
                 check=True, 
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.PIPE,
@@ -59,7 +59,7 @@ def main():
         # We pass run_tests=True to ensure safety
         report_json = _audit_pr_changes_logic(
             path=".", 
-            branch=args.branch, 
+            base_branch=args.branch, 
             run_tests=True
         )
         

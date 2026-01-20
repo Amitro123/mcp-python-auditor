@@ -1548,7 +1548,6 @@ def audit_architecture(path: str) -> str:
     
     results = {
         "architecture": ArchitectureTool().analyze(target),
-        "complexity": ComplexityTool().analyze(target),
         "duplication": DuplicationTool().analyze(target),
         "typing": TypingTool().analyze(target)
     }
@@ -1562,9 +1561,8 @@ def audit_cleanup(path: str) -> str:
     target = Path(path).resolve()
     
     results = {
-        "cleanup": CleanupTool().analyze(target),
+        "cleanup": run_cleanup_scan(target),
         "gitignore": GitignoreTool().analyze(target),
-        "efficiency": EfficiencyTool().analyze(target)
     }
     return json.dumps(results, indent=2)
 
@@ -2082,15 +2080,14 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
                     "structure": StructureTool(),
                     "architecture": ArchitectureTool(),
                     "typing": TypingTool(),
-                    "complexity": ComplexityTool(),
                     "duplication": DuplicationTool(),
                     "deadcode": DeadcodeTool(),
-                    "cleanup": CleanupTool(),
-                    "security": SecurityTool(),
+                    "ruff": FastAuditTool(),
                     "secrets": SecretsTool(),
                     "tests": TestsTool(),
                     "git_info": GitTool(),
                 }
+
                 
                 results = {}
                 for key, tool in tools.items():
