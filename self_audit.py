@@ -10,8 +10,7 @@ from app.tools.structure_tool import StructureTool
 from app.tools.architecture_tool import ArchitectureTool
 from app.tools.duplication_tool import DuplicationTool
 from app.tools.deadcode_tool import DeadcodeTool
-from app.tools.efficiency_tool import EfficiencyTool
-from app.tools.cleanup_tool import CleanupTool
+
 try:
     from app.tools.git_tool import GitTool
 except ImportError:

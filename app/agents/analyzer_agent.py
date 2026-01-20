@@ -9,7 +9,7 @@ import logging
 import asyncio
 
 from app.core.tool_registry import registry
-from app.core.report_generator import ReportGenerator
+from app.core.report_generator_v2 import ReportGeneratorV2 as ReportGenerator
 from app.core.self_healing import SelfHealingAnalyzer
 from app.core.file_discovery import get_project_files
 from app.core.audit_validator import validate_report_integrity
