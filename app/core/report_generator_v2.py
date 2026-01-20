@@ -158,13 +158,18 @@ class ReportGeneratorV2:
                     tool_results.get("secrets", {}).get("total_secrets", 0)
                 ),
                 
+                # Template-specific fields
+                "repo_name": Path(project_path).name,
+                "duration": tool_results.get("duration", "N/A"),
+                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                
                 # Raw results for template access
                 "raw_results": tool_results,
             })
             
             # Step 4: Load template
             logger.info("Loading Jinja2 template...")
-            template = self.env.get_template('audit_report.md.j2')
+            template = self.env.get_template('audit_report_v3.md.j2')  # Use new template
             
             # Step 5: Render report
             logger.info("Rendering report...")
