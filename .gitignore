@@ -72,5 +72,39 @@ fresh-install-test/
 *-venv/
 test-venv/
 
-# Temporary scripts
+# Temporary scripts and backups
 *.bak
+*.OLD
+*.old
+*_backup_*
+backups/
+
+# Session summaries and temporary docs
+*_SUMMARY.md
+*_COMPLETE.md
+*_DEPLOYED.md
+*_DEPLOYMENT.md
+*_GUIDE.md
+*_IMPLEMENTATION*.md
+*_MIGRATION*.md
+*_ANALYSIS.md
+*_FIX*.md
+SESSION_*.md
+BUG_FIX_*.md
+CHANGES_TRACKER.md
+
+# Debug and test files
+debug_*.txt
+debug_*.log
+test_*.py
+demo_*.py
+verify_*.py
+ci_runner.py
+
+# Cache directories
+.ruff_cache/
+.mypy_cache/
+.pytype/
+
+# Lock files (if not using uv for dependency management)
+uv.lock
