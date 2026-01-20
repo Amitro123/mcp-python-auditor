@@ -14,8 +14,70 @@ import logging
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.core.report_context import build_report_context
+from app.core.scoring_engine import ScoringEngine, ScoreBreakdown
+from app.core.report_validator import ReportValidator
 
 logger = logging.getLogger(__name__)
+
+
+def _get_coverage_severity(coverage: float) -> dict:
+    """Returns object with severity + structured explanation"""
+    if coverage == 0:
+        return {
+            "level": "critical",
+            "label": "❌ Critical",
+            "description": "No test coverage detected",
+            "recommendation": "Add unit tests immediately"
+        }
+    elif coverage < 10:
+        return {
+            "level": "critical", 
+            "label": "❌ Critical",
+            "description": f"Virtually no test coverage ({coverage}%)",
+            "recommendation": "Increase coverage to at least 30%"
+        }
+    elif coverage < 30:
+        return {
+            "level": "high",
+            "label": "🔴 Very Low", 
+            "description": f"Insufficient test coverage ({coverage}%)",
+            "recommendation": "Add tests for critical paths"
+        }
+    elif coverage < 50:
+        return {
+            "level": "medium",
+            "label": "🟡 Low",
+            "description": f"Below recommended coverage ({coverage}%)",
+            "recommendation": "Aim for 70%+ coverage"
+        }
+    elif coverage < 70:
+        return {
+            "level": "low",
+            "label": "🟢 Moderate",
+            "description": f"Acceptable coverage ({coverage}%)",
+            "recommendation": "Continue improving to 80%+"
+        }
+    else:
+        return {
+            "level": "info",
+            "label": "✅ Good",
+            "description": f"Good test coverage ({coverage}%)",
+            "recommendation": "Maintain current standards"
+        }
+
+
+def _get_security_severity(bandit_issues: int, secrets: int) -> dict:
+    """Returns object with security severity classification"""
+    total = bandit_issues + (secrets * 2)  # secrets are more severe
+    
+    if total == 0:
+        return {"level": "info", "label": "✅ Clean", "count": 0}
+    elif total <= 3:
+        return {"level": "low", "label": "🟡 Minor", "count": total}
+    elif total <= 10:
+        return {"level": "medium", "label": "🟠 Moderate", "count": total}
+    else:
+        return {"level": "high", "label": "🔴 Critical", "count": total}
 
 
 class ReportGeneratorV2:
@@ -49,12 +111,12 @@ class ReportGeneratorV2:
         scanned_files: List[str] = None
     ) -> str:
         """
-        Generate an audit report using Jinja2 template rendering.
+        Generate an audit report using Jinja2 template rendering with pre-calculated scores.
         
         Args:
             report_id: Unique report identifier
             project_path: Path to the project being audited
-            score: Overall audit score (0-100)
+            score: Overall audit score (0-100) - DEPRECATED, will be calculated
             tool_results: Raw results from all audit tools
             timestamp: Report generation timestamp
             scanned_files: Optional list of files that were scanned
@@ -63,30 +125,69 @@ class ReportGeneratorV2:
             Path to the generated report file
         """
         try:
-            # Step 1: Build normalized context
+            # Step 1: Calculate scores using deterministic engine (NOT LLM!)
+            logger.info("Calculating scores using ScoringEngine...")
+            score_breakdown = ScoringEngine.calculate_score(tool_results)
+            logger.info(f"Score calculated: {score_breakdown.final_score}/100 ({score_breakdown.grade})")
+            
+            # Step 2: Build normalized context
             logger.info("Building normalized report context...")
             context = build_report_context(
                 raw_results=tool_results,
                 project_path=project_path,
-                score=score,
+                score=score_breakdown.final_score,  # Use calculated score
                 report_id=report_id,
                 timestamp=timestamp
             )
             
-            # Step 2: Load template
+            # Step 3: Add pre-calculated scores and classifications
+            context.update({
+                # Calculated scores - these WON'T change!
+                "score": score_breakdown.final_score,
+                "grade": score_breakdown.grade,
+                "security_penalty": score_breakdown.security_penalty,
+                "quality_penalty": score_breakdown.quality_penalty,
+                "testing_penalty": score_breakdown.testing_penalty,
+                
+                # Pre-classified severities (prevent hallucination)
+                "coverage_severity": _get_coverage_severity(
+                    tool_results.get("tests", {}).get("coverage_percent", 0)
+                ),
+                "security_severity": _get_security_severity(
+                    tool_results.get("bandit", {}).get("total_issues", 0),
+                    tool_results.get("secrets", {}).get("total_secrets", 0)
+                ),
+                
+                # Raw results for template access
+                "raw_results": tool_results,
+            })
+            
+            # Step 4: Load template
             logger.info("Loading Jinja2 template...")
             template = self.env.get_template('audit_report.md.j2')
             
-            # Step 3: Render report
+            # Step 5: Render report
             logger.info("Rendering report...")
             report_content = template.render(**context)
             
-            # Step 4: Write to file
+            # Step 6: Validation
+            validator = ReportValidator()
+            errors = validator.validate_consistency(tool_results, report_content, score_breakdown)
+            if errors:
+                logger.warning(f"⚠️ Report inconsistencies detected: {errors}")
+                # Append warning to report
+                report_content += "\n\n---\n\n## ⚠️ Report Validation Warnings\n\n"
+                for error in errors:
+                    report_content += f"- {error}\n"
+            else:
+                logger.info("✅ Report validation passed - no inconsistencies detected")
+            
+            # Step 7: Write to file
             report_path = self.reports_dir / f"{report_id}.md"
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(report_content)
             
-            # Step 5: Append integrity validation if scanned_files provided
+            # Step 8: Append integrity validation if scanned_files provided
             if scanned_files:
                 self._append_integrity_validation(report_path, scanned_files)
             
