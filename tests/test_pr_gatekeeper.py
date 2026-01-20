@@ -115,7 +115,7 @@ class TestAuditPRChanges:
         with patch('mcp_fastmcp_server.get_changed_files') as mock_get:
             mock_get.return_value = []
             
-            from mcp_fastmcp_server import audit_pr_changes
+            from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
             
             result_json = audit_pr_changes(str(tmp_path), "main", run_tests=False)
             result = json.loads(result_json)
@@ -146,7 +146,7 @@ def hello_world():
                     stderr=""
                 )
                 
-                from mcp_fastmcp_server import audit_pr_changes
+                from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
                 
                 result_json = audit_pr_changes(str(tmp_path), "main", run_tests=False)
                 result = json.loads(result_json)
@@ -189,7 +189,7 @@ data = pickle.loads(user_input)  # Security issue
                 
                 mock_run.side_effect = side_effect
                 
-                from mcp_fastmcp_server import audit_pr_changes
+                from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
                 
                 result_json = audit_pr_changes(str(tmp_path), "main", run_tests=False)
                 result = json.loads(result_json)
@@ -232,7 +232,7 @@ x=1+2  # No spaces
                 
                 mock_run.side_effect = side_effect
                 
-                from mcp_fastmcp_server import audit_pr_changes
+                from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
                 
                 result_json = audit_pr_changes(str(tmp_path), "main", run_tests=False)
                 result = json.loads(result_json)
@@ -259,7 +259,7 @@ x=1+2  # No spaces
                 
                 mock_run.side_effect = side_effect
                 
-                from mcp_fastmcp_server import audit_pr_changes
+                from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
                 
                 result_json = audit_pr_changes(str(tmp_path), "main", run_tests=True)
                 result = json.loads(result_json)
@@ -286,7 +286,7 @@ x=1+2  # No spaces
                 
                 mock_run.side_effect = side_effect
                 
-                from mcp_fastmcp_server import audit_pr_changes
+                from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
                 
                 result_json = audit_pr_changes(str(tmp_path), "main", run_tests=True)
                 result = json.loads(result_json)
@@ -311,7 +311,7 @@ x=1+2  # No spaces
                     stderr=""
                 )
                 
-                from mcp_fastmcp_server import audit_pr_changes
+                from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
                 
                 result_json = audit_pr_changes(str(tmp_path), "main", run_tests=True)
                 result = json.loads(result_json)
@@ -345,7 +345,7 @@ def calculate(x, y):
                     stderr=""
                 )
                 
-                from mcp_fastmcp_server import audit_pr_changes
+                from mcp_fastmcp_server import _audit_pr_changes_logic as audit_pr_changes
                 
                 result_json = audit_pr_changes(str(tmp_path), "main", run_tests=False)
                 result = json.loads(result_json)

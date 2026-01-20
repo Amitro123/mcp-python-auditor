@@ -42,6 +42,7 @@ class DeadcodeTool(BaseTool):
         if file_list is not None and not file_list:
             logger.warning("Vulture: Empty file list provided, skipping scan")
             return {
+                "status": "skipped",
                 "dead_functions": [],
                 "dead_classes": [],
                 "dead_variables": [],
@@ -115,6 +116,7 @@ class DeadcodeTool(BaseTool):
             unused_imports = [item for item in dead_items if item['type'] == 'import']
             
             return {
+                "status": "analyzed" if dead_items else "clean",
                 "dead_functions": dead_functions,
                 "dead_classes": dead_classes,
                 "dead_variables": dead_variables,
@@ -189,6 +191,7 @@ class DeadcodeTool(BaseTool):
         logger.info("Using fallback dead code analysis")
         
         return {
+            "status": "skipped",
             "dead_functions": [],
             "dead_classes": [],
             "dead_variables": [],

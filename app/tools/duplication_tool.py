@@ -41,6 +41,7 @@ class DuplicationTool(BaseTool):
         if file_list is not None and not file_list:
             logger.warning("Duplication: Empty file list provided, skipping scan")
             return {
+                "status": "skipped",
                 "duplicates": [],
                 "total_duplicates": 0,
                 "total_functions_analyzed": 0
@@ -61,6 +62,7 @@ class DuplicationTool(BaseTool):
             duplicates = self._find_duplicates(functions)
             
             return {
+                "status": "analyzed" if duplicates else "clean",
                 "duplicates": duplicates,
                 "total_duplicates": len(duplicates),
                 "total_functions_analyzed": len(functions)

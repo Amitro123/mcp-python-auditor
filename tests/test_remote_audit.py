@@ -17,7 +17,7 @@ class TestRemoteAuditValidation:
     
     def test_invalid_url_format(self):
         """Test rejection of invalid URL formats."""
-        from mcp_fastmcp_server import audit_remote_repo
+        from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
         
         result_json = audit_remote_repo("invalid-url", "main")
         result = json.loads(result_json)
@@ -35,7 +35,7 @@ class TestRemoteAuditValidation:
                 # Mock temp directory
                 mock_temp.return_value.__enter__.return_value = tempfile.mkdtemp()
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 # Should not error on URL validation
                 result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
@@ -51,7 +51,7 @@ class TestRemoteAuditValidation:
                 mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
                 mock_temp.return_value.__enter__.return_value = tempfile.mkdtemp()
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 result_json = audit_remote_repo("git@github.com:user/repo.git", "main")
                 result = json.loads(result_json)
@@ -76,7 +76,7 @@ class TestRemoteAuditCloning:
                     stderr="fatal: repository not found"
                 )
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 result_json = audit_remote_repo("https://github.com/user/nonexistent.git", "main")
                 result = json.loads(result_json)
@@ -99,7 +99,7 @@ class TestRemoteAuditCloning:
                     stderr="fatal: Authentication failed"
                 )
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 result_json = audit_remote_repo("https://github.com/user/private.git", "main")
                 result = json.loads(result_json)
@@ -122,7 +122,7 @@ class TestRemoteAuditCloning:
                     stderr="fatal: Remote branch 'nonexistent' not found"
                 )
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 result_json = audit_remote_repo("https://github.com/user/repo.git", "nonexistent")
                 result = json.loads(result_json)
@@ -141,7 +141,7 @@ class TestRemoteAuditCloning:
                 # Mock timeout
                 mock_run.side_effect = subprocess.TimeoutExpired("git", 300)
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 result_json = audit_remote_repo("https://github.com/user/huge-repo.git", "main")
                 result = json.loads(result_json)
@@ -160,7 +160,7 @@ class TestRemoteAuditCloning:
                 # Mock FileNotFoundError (git not found)
                 mock_run.side_effect = FileNotFoundError("git not found")
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
                 result = json.loads(result_json)
@@ -186,7 +186,7 @@ class TestRemoteAuditExecution:
                 # Create non-Python file
                 (tmp_path / "README.md").write_text("# Test")
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
                 result = json.loads(result_json)
@@ -219,18 +219,18 @@ def test_hello():
                 
                 # Mock tool classes
                 with patch('mcp_fastmcp_server.StructureTool') as mock_struct:
-                    with patch('mcp_fastmcp_server.SecurityTool') as mock_sec:
+                    with patch('mcp_fastmcp_server.FastAuditTool') as mock_ruff:
                         # Mock tool results
                         mock_struct.return_value.analyze.return_value = {
                             "status": "analyzed",
                             "total_py_files": 2
                         }
-                        mock_sec.return_value.analyze.return_value = {
+                        mock_ruff.return_value.analyze.return_value = {
                             "status": "clean",
                             "total_issues": 0
                         }
                         
-                        from mcp_fastmcp_server import audit_remote_repo
+                        from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                         
                         result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
                         result = json.loads(result_json)
@@ -273,7 +273,7 @@ class TestRemoteAuditCleanup:
                     mock_glob.return_value = [Path("test.py")]
                     
                     with patch('mcp_fastmcp_server.StructureTool'):
-                        from mcp_fastmcp_server import audit_remote_repo
+                        from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                         
                         audit_remote_repo("https://github.com/user/repo.git", "main")
                         
@@ -308,7 +308,7 @@ class TestRemoteAuditCleanup:
                     stderr="fatal: repository not found"
                 )
                 
-                from mcp_fastmcp_server import audit_remote_repo
+                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
                 audit_remote_repo("https://github.com/user/nonexistent.git", "main")
                 
@@ -350,8 +350,8 @@ if __name__ == '__main__':
                 # Mock all tool classes to avoid actual execution
                 tools_to_mock = [
                     'StructureTool', 'ArchitectureTool', 'TypingTool',
-                    'ComplexityTool', 'DuplicationTool', 'DeadcodeTool',
-                    'CleanupTool', 'SecurityTool', 'SecretsTool',
+                    'DuplicationTool', 'DeadcodeTool',
+                    'FastAuditTool', 'SecretsTool',
                     'TestsTool', 'GitTool'
                 ]
                 
@@ -363,7 +363,7 @@ if __name__ == '__main__':
                     patches.append(p)
                 
                 try:
-                    from mcp_fastmcp_server import audit_remote_repo
+                    from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                     
                     result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
                     result = json.loads(result_json)
