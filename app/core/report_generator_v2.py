@@ -159,7 +159,7 @@ class ReportGeneratorV2:
                 ),
                 
                 # Template-specific fields
-                "repo_name": Path(project_path).name,
+                "repo_name": Path(project_path).resolve().name,
                 "duration": tool_results.get("duration", "N/A"),
                 "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
                 
