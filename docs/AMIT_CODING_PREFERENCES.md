@@ -20,3 +20,4 @@ Learned:
 ✅ **Git-Native Discovery**: Always prefer `git ls-files` over `os.walk` for finding source code. It inherently respects `.gitignore` and is faster/more reliable than maintaining manual exclusion lists.
 ✅ **Windows Checkpointing**: On Windows, split process arguments into chunks (e.g., batches of 50 files) to avoid `WinError 206` (command line too long) when passing explicit file lists to subprocesses.
 ✅ **Guard Clauses**: Analysis tools must have explicit checks for empty file lists and extension mismatches at the start of their `analyze()` method.
+✅ **Robust Path Handling**: Always use `Path(p).resolve().name` when extracting project names, as `Path(".").name` returns empty string and causes template errors.
