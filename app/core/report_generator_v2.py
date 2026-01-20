@@ -140,7 +140,35 @@ class ReportGeneratorV2:
                 timestamp=timestamp
             )
             
-            # Step 3: Add pre-calculated scores and classifications
+            
+            # Debug logging to identify data structure issues
+            logger.debug(f"tool_results keys: {list(tool_results.keys())}")
+            if 'tests' in tool_results:
+                logger.debug(f"tests type: {type(tool_results.get('tests'))}")
+            
+            # Safe extraction with type validation
+            tests_data = tool_results.get("tests", {})
+            if isinstance(tests_data, dict):
+                coverage = tests_data.get("coverage_percent", 0)
+            else:
+                coverage = 0
+                logger.warning(f"Tests data is not a dict: {type(tests_data)}")
+
+            bandit_data = tool_results.get("bandit", {})
+            if isinstance(bandit_data, dict):
+                bandit_issues = bandit_data.get("total_issues", 0)
+            else:
+                bandit_issues = 0
+                logger.warning(f"Bandit data is not a dict: {type(bandit_data)}")
+
+            secrets_data = tool_results.get("secrets", {})
+            if isinstance(secrets_data, dict):
+                secrets_count = secrets_data.get("total_secrets", 0)
+            else:
+                secrets_count = 0
+                logger.warning(f"Secrets data is not a dict: {type(secrets_data)}")
+
+            # Pre-classified severities (prevent hallucination)
             context.update({
                 # Calculated scores - these WON'T change!
                 "score": score_breakdown.final_score,
@@ -149,14 +177,8 @@ class ReportGeneratorV2:
                 "quality_penalty": score_breakdown.quality_penalty,
                 "testing_penalty": score_breakdown.testing_penalty,
                 
-                # Pre-classified severities (prevent hallucination)
-                "coverage_severity": _get_coverage_severity(
-                    tool_results.get("tests", {}).get("coverage_percent", 0)
-                ),
-                "security_severity": _get_security_severity(
-                    tool_results.get("bandit", {}).get("total_issues", 0),
-                    tool_results.get("secrets", {}).get("total_secrets", 0)
-                ),
+                "coverage_severity": _get_coverage_severity(coverage),
+                "security_severity": _get_security_severity(bandit_issues, secrets_count),
                 
                 # Template-specific fields
                 "repo_name": Path(project_path).resolve().name,
