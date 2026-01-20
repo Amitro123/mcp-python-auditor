@@ -20,19 +20,16 @@ from typing import Dict, Any
 
 # Import our internal tools
 from app.tools.structure_tool import StructureTool
-from app.tools.security_tool import SecurityTool
+from app.tools.fast_audit_tool import FastAuditTool
 from app.tools.secrets_tool import SecretsTool
 from app.tools.tests_tool import TestsTool
 from app.tools.deadcode_tool import DeadcodeTool
 from app.tools.architecture_tool import ArchitectureTool
 from app.tools.duplication_tool import DuplicationTool
-from app.tools.complexity_tool import ComplexityTool
-from app.tools.efficiency_tool import EfficiencyTool
-from app.tools.cleanup_tool import CleanupTool
 from app.tools.gitignore_tool import GitignoreTool
 from app.tools.git_tool import GitTool
 from app.tools.typing_tool import TypingTool
-from app.core.report_generator import ReportGenerator
+from app.core.report_generator_v2 import ReportGeneratorV2
 
 # Create the MCP Server
 mcp = FastMCP("Python Auditor")
@@ -131,18 +128,24 @@ The following tools are required to run the audit but were not found:
 
 
 def run_bandit(path: Path) -> dict:
-    """Run Bandit security scan using Safety-First engine."""
+    """Run FastAudit (Ruff) for security and quality checks."""
     try:
-        from app.core.file_discovery import get_project_files
-        from app.tools.security_tool import SecurityTool
-        
         target_path = Path(path).resolve()
-        files = get_project_files(target_path)
+        tool = FastAuditTool()
+        result = tool.analyze(target_path)
         
-        tool = SecurityTool()
-        return tool.analyze(target_path, file_list=files)
+        # Map to expected format for backward compatibility
+        return {
+            "tool": "ruff",
+            "status": result.get("status", "clean"),
+            "issues": result.get("security", []) + result.get("quality", []),
+            "total_issues": result.get("total_issues", 0),
+            "security_count": len(result.get("security", [])),
+            "quality_count": len(result.get("quality", [])),
+            "files_with_issues": result.get("files_with_issues", 0)
+        }
     except Exception as e:
-        return {"tool": "bandit", "status": "error", "error": str(e), "issues": [], "total_issues": 0}
+        return {"tool": "ruff", "status": "error", "error": str(e), "issues": [], "total_issues": 0}
 
 
 def run_secrets(path: Path) -> dict:
@@ -379,18 +382,23 @@ def run_dead_code(path: Path) -> dict:
 
 
 def run_efficiency(path: Path) -> dict:
-    """Run Radon for cyclomatic complexity using Safety-First engine."""
+    """Run FastAudit (Ruff) for complexity and performance checks."""
     try:
-        from app.core.file_discovery import get_project_files
-        from app.tools.complexity_tool import ComplexityTool
-        
         target_path = Path(path).resolve()
-        files = get_project_files(target_path)
+        tool = FastAuditTool()
+        result = tool.analyze(target_path)
         
-        tool = ComplexityTool()
-        return tool.analyze(target_path, file_list=files)
+        # Map to expected format for backward compatibility
+        return {
+            "tool": "ruff",
+            "status": result.get("status", "clean"),
+            "high_complexity_functions": result.get("complexity", []),
+            "total_high_complexity": len(result.get("complexity", [])),
+            "performance_issues": result.get("performance", []),
+            "total_functions_analyzed": result.get("total_issues", 0)
+        }
     except Exception as e:
-         return {"tool": "radon", "status": "error", "error": str(e), "high_complexity_functions": [], "total_high_complexity": 0}
+         return {"tool": "ruff", "status": "error", "error": str(e), "high_complexity_functions": [], "total_high_complexity": 0}
 
 
 def run_duplication(path: Path) -> dict:
@@ -454,42 +462,28 @@ def run_git_info(path: Path) -> dict:
 
 
 def run_cleanup_scan(path: Path) -> dict:
-    """Scan for cleanup opportunities (cache dirs, temp files)."""
+    """Scan for cleanup opportunities (cache dirs, temp files) - Simplified version."""
     try:
         cleanup_targets = {
             "__pycache__": 0,
             ".pytest_cache": 0,
             ".mypy_cache": 0,
-            "htmlcov": 0,
-            ".coverage": 0,
-            "*.pyc": 0,
-            ".DS_Store": 0
+            ".ruff_cache": 0,
         }
         
         total_size_bytes = 0
         items_found = []
         
         for pattern in cleanup_targets.keys():
-            if pattern.startswith('*'):
-                # File pattern
-                for f in path.glob(f"**/{pattern}"):
+            for d in path.glob(f"**/{pattern}"):
+                if d.is_dir():
                     try:
-                        size = f.stat().st_size
+                        size = sum(f.stat().st_size for f in d.rglob('*') if f.is_file())
                         cleanup_targets[pattern] += 1
                         total_size_bytes += size
+                        items_found.append(str(d.relative_to(path)))
                     except:
                         pass
-            else:
-                # Directory
-                for d in path.glob(f"**/{pattern}"):
-                    if d.is_dir():
-                        try:
-                            size = sum(f.stat().st_size for f in d.rglob('*') if f.is_file())
-                            cleanup_targets[pattern] += 1
-                            total_size_bytes += size
-                            items_found.append(str(d.relative_to(path)))
-                        except:
-                            pass
         
         return {
             "tool": "cleanup",
@@ -1140,18 +1134,41 @@ async def run_audit_background(job_id: str, path: str):
             "installed_tools": []
         }
         
-        # AUTO-GENERATE REPORT
-        log(f"[Job {job_id}] Generating Markdown report...")
-        report_content = generate_full_markdown_report(job_id, duration, result_dict, path)
+        # AUTO-GENERATE REPORT using Jinja2 engine
+        log(f"[Job {job_id}] Generating Markdown report with Jinja2...")
         
-        # TASK 2: Activate Validator
-        report_content = validate_report_integrity(report_content)
-        
-        report_path = REPORTS_DIR / f"FULL_AUDIT_{job_id}.md"
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(report_content)
+        try:
+            # Use Jinja2-based report generator
+            generator = ReportGeneratorV2(REPORTS_DIR)
+            report_path = generator.generate_report(
+                report_id=job_id,
+                project_path=path,
+                score=0,  # Will be calculated inside
+                tool_results=result_dict,
+                timestamp=datetime.datetime.now()
+            )
+            
+            # Read the generated report
+            report_content = Path(report_path).read_text(encoding='utf-8')
+            
+            # Add integrity check
+            report_content = validate_report_integrity(report_content)
+            
+            # Write back with validation
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(report_content)
+                
+        except Exception as e:
+            # Fallback to legacy generator if Jinja2 fails
+            log(f"[Job {job_id}] Jinja2 failed, using legacy generator: {e}")
+            report_content = generate_full_markdown_report(job_id, duration, result_dict, path)
+            report_content = validate_report_integrity(report_content)
+            
+            report_path = REPORTS_DIR / f"FULL_AUDIT_{job_id}.md"
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(report_content)
         
         # Update Job with results and report path
         JOBS[job_id] = {

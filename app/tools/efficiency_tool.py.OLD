@@ -30,15 +30,33 @@ class EfficiencyTool(BaseTool):
         
         try:
             issues = []
+            files_processed = 0
+            max_files = 100  # Limit to prevent hanging
             
             # Use centralized file walker from BaseTool
             for py_file in self.walk_project_files(project_path):
-                file_issues = self._analyze_file(py_file, project_path)
-                issues.extend(file_issues)
+                if files_processed >= max_files:
+                    logger.warning(f"Efficiency: Reached file limit ({max_files}), stopping scan")
+                    break
+                
+                try:
+                    file_issues = self._analyze_file(py_file, project_path)
+                    issues.extend(file_issues)
+                    files_processed += 1
+                    
+                    # Log progress every 20 files
+                    if files_processed % 20 == 0:
+                        logger.info(f"Efficiency: Processed {files_processed} files, found {len(issues)} issues")
+                except Exception as e:
+                    logger.debug(f"Efficiency: Skipped {py_file}: {e}")
+                    continue
+            
+            logger.info(f"Efficiency: Completed. Processed {files_processed} files, found {len(issues)} issues")
             
             return {
                 "issues": issues,
                 "total_issues": len(issues),
+                "files_processed": files_processed,
                 "by_type": self._count_by_type(issues)
             }
         except Exception as e:

@@ -1,0 +1,304 @@
+# 🕵️♂️ Project Audit Report: {{ project_name }}
+**Score:** {{ score }}/100 🔴 | **Date:** {{ timestamp }}
+**Report ID:** `{{ report_id }}`
+
+## 📊 Tool Execution Summary
+
+| Tool | Status | Details |
+|------|--------|----------|
+{% for tool in tools_summary -%}
+| {{ tool.name }} | {{ tool.status }} | {{ tool.details }} |
+{% endfor %}
+
+{% if top_priorities %}
+## 🚨 TOP 3 PRIORITY FIXES
+
+{% for priority in top_priorities %}
+├── **{{ loop.index }}. {{ priority.title }}** (+{{ priority.impact }} points)
+│   └── {{ priority.description }}
+{% endfor %}
+{% else %}
+## 🚨 TOP PRIORITIES
+✅ No critical fixes identified. Maintain current standards!
+{% endif %}
+
+---
+
+## 📁 CLEAN STRUCTURE (Actionable)
+
+{% if structure.available %}
+**Files:** {{ structure.total_files }} Python | **Lines:** {{ structure.total_lines }}
+
+```
+{{ structure.tree }}
+```
+
+*Focusing on 80% code density zones. Filtered docs/, reports/, and scripts/ for clarity.*
+{% else %}
+⚠️ **Structure analysis did not run.** Check logs.
+{% endif %}
+
+---
+
+## 🏗️ Architecture Logic
+
+{% if architecture.has_graph %}
+```mermaid
+{{ architecture.mermaid_graph }}
+```
+
+[🔍 **Open Interactive Graph**](https://mermaid.live/edit#...)
+{% else %}
+⚠️ **Architecture graph not available.**
+{% endif %}
+
+{% if architecture.has_issues %}
+### Architecture Issues ({{ architecture.issues|length }})
+
+{% for issue in architecture.issues %}
+- **{{ issue.severity|upper }}**: {{ issue.description }}
+  - File: `{{ issue.file }}`
+{% endfor %}
+{% endif %}
+
+---
+
+## 🔒 Security Analysis (Bandit)
+
+{% if security.available %}
+**Files Scanned:** {{ security.files_scanned }} | **Issues Found:** {{ security.total_issues }}
+
+{% if security.has_issues %}
+### Top Security Issues (Showing {{ security.issues|length }})
+
+| Severity | Type | File | Description |
+|----------|------|------|-------------|
+{% for issue in security.issues[:20] %}
+| {{ issue.severity }} | {{ issue.type }} | `{{ issue.file }}:{{ issue.line }}` | {{ issue.description }} |
+{% endfor %}
+
+{% if security.total_issues > 20 %}
+*...and {{ security.total_issues - 20 }} more issues*
+{% endif %}
+
+**Severity Breakdown:**
+{% for severity, count in security.severity_counts.items() %}
+- {{ severity }}: {{ count }} issues
+{% endfor %}
+{% else %}
+✅ **Clean:** No security issues detected.
+{% endif %}
+{% else %}
+⚠️ **Security scan did not run.** Check logs or tool configuration.
+{% endif %}
+
+---
+
+## 🎭 DUPLICATES (Grouped + Actionable)
+
+{% if duplication.available %}
+{% if duplication.has_duplicates %}
+**Total Duplicates:** {{ duplication.total_duplicates }} | **Functions Analyzed:** {{ duplication.total_functions_analyzed }}
+
+{% for file_path, dups in duplication.file_groups %}
+- **{{ file_path }}** → {{ dups|length }} funcs (heavy redundancy)
+  {% if 'test_' in file_path %}
+  👉 **Fix:** Extract `test_event_factory()` or common test helpers
+  {% else %}
+  👉 **Fix:** Extract common helper or factory methods
+  {% endif %}
+  {% for dup in dups[:2] %}
+  - `{{ dup.function_name }}` ({{ dup.similarity|round(0) }}% match)
+  {% endfor %}
+{% endfor %}
+
+{% if duplication.file_groups|length > 10 %}
+*...and {{ duplication.file_groups|length - 10 }} other files*
+{% endif %}
+{% else %}
+✅ **Clean:** No significant code duplication found.
+{% endif %}
+{% else %}
+⚠️ **Duplication analysis did not run.** Check logs.
+{% endif %}
+
+---
+
+## ☠️ DEAD CODE / UNUSED
+
+{% if deadcode.available %}
+{% if deadcode.error %}
+⚠️ **Error:** {{ deadcode.error }}
+{% elif deadcode.has_dead_code %}
+**Total Items:** {{ deadcode.total_items }} ({{ deadcode.total_dead_functions }} functions, {{ deadcode.total_unused_imports }} imports, {{ deadcode.total_unused_vars }} variables)
+
+{% if deadcode.dead_functions %}
+**Unused Functions:**
+{% for func in deadcode.dead_functions %}
+- `{{ func.file }}:{{ func.name }}()` - {{ func.references }} references
+{% endfor %}
+{% if deadcode.total_dead_functions > 10 %}
+*...and {{ deadcode.total_dead_functions - 10 }} more*
+{% endif %}
+{% endif %}
+
+{% if deadcode.unused_imports %}
+**Unused Imports:**
+{% for imp in deadcode.unused_imports %}
+- `{{ imp.file }}`: {{ imp.import }}
+{% endfor %}
+{% if deadcode.total_unused_imports > 10 %}
+*...and {{ deadcode.total_unused_imports - 10 }} more*
+{% endif %}
+{% endif %}
+{% else %}
+✅ **Clean:** No dead code detected.
+{% endif %}
+{% else %}
+⚠️ **Dead code analysis did not run.** Check logs.
+{% endif %}
+
+---
+
+## 🧹 CLEANUP READY COMMANDS
+
+{% if cleanup.available %}
+{% if cleanup.has_cleanup %}
+**Total Reclaimable:** {{ cleanup.total_size_mb|round(2) }} MB
+
+```bash
+{% for item in cleanup.items %}
+# {{ item.type }}: {{ item.size_mb|round(1) }}MB
+{{ item.command }}
+{% endfor %}
+```
+
+**Cleanup Targets:**
+{% for target, count in cleanup.cleanup_targets.items() %}
+- `{{ target }}`: {{ count }} items
+{% endfor %}
+{% else %}
+✅ Environment is clean.
+{% endif %}
+{% else %}
+⚠️ **Cleanup analysis did not run.** Check logs.
+{% endif %}
+
+---
+
+## ✅ TESTS & COVERAGE
+
+{% if tests.available %}
+**Files Found:** {{ tests.total_test_files }} test files
+
+{% if tests.premature_stop %}
+⚠️ **Warning:** Test execution stopped prematurely (Crash/Exit). Expected results from {{ tests.total_test_files }} files, got only {{ tests.total_executed }}.
+{% endif %}
+
+**Coverage:** {% if tests.coverage_percent >= 0 %}{{ tests.coverage_percent }}%{% else %}Config missing{% endif %}
+
+{% if tests.coverage_percent < 0 %}
+👉 **Fix:** `pytest --cov=src --cov-report=term-missing`
+{% endif %}
+
+**Test Results:**
+- Passed: {{ tests.tests_passed }} ✅
+- Failed: {{ tests.tests_failed }} ❌
+
+**Test Types:**
+- Unit: {% if tests.has_unit %}✅{% else %}❌{% endif %}
+- Integration: {% if tests.has_integration %}✅{% else %}❌{% endif %}
+- E2E: {% if tests.has_e2e %}✅{% else %}❌{% endif %}
+
+{% if tests.test_breakdown %}
+**Breakdown:**
+{% for test_type, count in tests.test_breakdown.items() %}
+- {{ test_type }}: {{ count }} files
+{% endfor %}
+{% endif %}
+
+*Note: Run `pytest --collect-only` to see all executable tests.*
+{% else %}
+⚠️ **Tests analysis did not run.** Check logs.
+{% endif %}
+
+---
+
+## 🧮 COMPLEXITY & EFFICIENCY
+
+{% if efficiency.available %}
+**Functions Analyzed:** {{ efficiency.total_functions }}
+**Average Complexity:** {{ efficiency.average_complexity|round(2) }}
+**Maintainability:** {{ efficiency.average_maintainability|round(2) }} (Grade: {{ efficiency.maintainability_grade }})
+
+{% if efficiency.has_issues %}
+### Efficiency Issues ({{ efficiency.issues|length }})
+
+{% for issue in efficiency.issues %}
+- **{{ issue.type }}** in `{{ issue.file }}:{{ issue.line }}`
+  - {{ issue.description }}
+{% endfor %}
+{% else %}
+✅ **Clean:** No efficiency issues detected.
+{% endif %}
+{% else %}
+⚠️ **Efficiency analysis did not run.** Check logs.
+{% endif %}
+
+---
+
+## 🔐 SECRETS DETECTION
+
+{% if secrets.available %}
+{% if secrets.has_secrets %}
+⚠️ **{{ secrets.total_secrets }} potential secrets found:**
+
+{% for secret in secrets.secrets %}
+- `{{ secret.file }}:{{ secret.line }}` - {{ secret.type }}
+{% endfor %}
+{% else %}
+✅ **Clean:** No secrets detected.
+{% endif %}
+{% else %}
+⚠️ **Secrets detection did not run.** Check logs.
+{% endif %}
+
+---
+
+## 📝 RECENT CHANGES
+
+{% if git.available %}
+**Last Commit:** `{{ git.last_commit.hash }}` - {{ git.last_commit.author }}, {{ git.last_commit.when }}
+*"{{ git.last_commit.message }}"*
+
+**Status:** {% if git.uncommitted_changes > 0 %}⚠️{% else %}✅{% endif %} {{ git.status }}
+**Branch:** {{ git.branch }}
+**Uncommitted Changes:** {{ git.uncommitted_changes }}
+{% if git.days_since_commit > 0 %}
+**Days Since Commit:** {{ git.days_since_commit }} days
+{% endif %}
+{% else %}
+ℹ️ *Not a git repository*
+{% endif %}
+
+---
+
+## 📋 GITIGNORE RECOMMENDATIONS
+
+{% if gitignore.available %}
+{% if gitignore.has_suggestions %}
+```gitignore
+{% for suggestion in gitignore.suggestions %}
+{{ suggestion }}
+{% endfor %}
+```
+{% else %}
+✅ **Complete:** Gitignore is properly configured.
+{% endif %}
+{% else %}
+⚠️ **Gitignore analysis did not run.** Check logs.
+{% endif %}
+
+---
+
+*Generated by Python Auditor MCP v2.1 (Jinja2 Template Engine)*

@@ -220,8 +220,12 @@ class ReportGenerator:
         # Group by file
         file_groups = defaultdict(list)
         for dup in duplicates:
-            primary_file = dup.get('locations', ['Unknown'])[0].split(':')[0]
-            file_groups[primary_file].append(dup)
+            # Handle locations list or single file
+            locations = dup.get('locations', [])
+            if locations:
+                # Use first location's filename as primary key
+                primary_file = locations[0].split(':')[0]
+                file_groups[primary_file].append(dup)
 
         # Sort files by duplicate count
         sorted_files = sorted(file_groups.items(), key=lambda x: -len(x[1]))
@@ -370,9 +374,16 @@ class ReportGenerator:
         coverage = data.get('coverage_percent', -1)
         warning = data.get('warning', '')
         total_files = data.get('total_test_files', 0)
+        tests_passed = data.get('tests_passed', 0)
+        tests_failed = data.get('tests_failed', 0)
         
         # Header with file count and coverage
         f.write(f"**Files Found:** {total_files} (glob test_*.py, *_test.py)\n")
+        
+        # Check for premature test execution stop
+        total_executed = tests_passed + tests_failed
+        if total_files > 0 and total_executed > 0 and total_executed < total_files:
+            f.write(f"\n⚠️ **Warning:** Test execution stopped prematurely (Crash/Exit). Expected results from {total_files} files, got only {total_executed}.\n\n")
         
         # Coverage status
         if coverage <= 0 or "Config missing" in warning:
@@ -542,6 +553,12 @@ class ReportGenerator:
             if 'file' in issue:
                 f.write(f"   - File: `{issue['file']}`\n")
             f.write("\n")
+
+        if 'mermaid_graph' in data:
+            f.write("### 🗺️ System Map\n")
+            f.write("```mermaid\n")
+            f.write(data['mermaid_graph'])
+            f.write("\n```\n\n")
     
     def _write_duplication_section(self, f, data: Dict[str, Any]) -> None:
         """Write code duplication section."""
@@ -596,6 +613,16 @@ class ReportGenerator:
         """Write efficiency issues section."""
         issues = data.get('issues', [])
         
+        # Fallback: Map Radon complexity results if 'issues' is empty but 'high_complexity_functions' exists
+        if not issues and 'high_complexity_functions' in data:
+             for func in data.get('high_complexity_functions', []):
+                 issues.append({
+                     'type': 'High Complexity',
+                     'file': func.get('file', ''),
+                     'line': func.get('line', ''),
+                     'description': f"Complexity: {func.get('complexity', 0)} (Function: {func.get('function', '')})"
+                 })
+
         if not issues:
             f.write("## ⚡ Efficiency: ✅ No issues\n\n")
             return
@@ -688,7 +715,7 @@ class ReportGenerator:
             ('security', '🔒 Security (Bandit)', self._get_security_status),
             ('tests', '✅ Tests', self._get_tests_status),
             ('gitignore', '📋 Gitignore', self._get_gitignore_status),
-            ('git', '📝 Git Status', self._get_git_status),
+            ('git_info', '📝 Git Status', self._get_git_status),
         ]
         
         for key, name, status_func in tools_config:
@@ -759,10 +786,15 @@ class ReportGenerator:
         """Get efficiency tool status."""
         if not data:
             return "⚠️ Skip", "Tool did not run"
-        issues = len(data.get('issues', []))
-        if issues == 0:
+        
+        issues_count = len(data.get('issues', []))
+        # Check for complexity data as fallback
+        if issues_count == 0:
+            issues_count = len(data.get('high_complexity_functions', []))
+
+        if issues_count == 0:
             return "✅ Pass", "No efficiency issues"
-        return "⚠️ Issues", f"{issues} issue(s) found"
+        return "⚠️ Issues", f"{issues_count} issue(s) found"
     
     def _get_cleanup_status(self, data: Dict[str, Any]) -> tuple:
         """Get cleanup tool status."""
@@ -808,8 +840,15 @@ class ReportGenerator:
         """Get tests tool status."""
         if not data:
             return "⚠️ Skip", "Tool did not run"
+        
+        # Check for failures first
+        failed = data.get('tests_failed', 0)
+        if failed > 0:
+             return "❌ Fail", f"{failed} test(s) failed"
+
         coverage = data.get('coverage_percent', -1)
         total_files = data.get('total_test_files', 0)
+        
         if coverage < 0:
             return "❌ Fail", "Coverage calculation failed"
         return "ℹ️ Info", f"{total_files} test files, {coverage}% coverage"
@@ -824,11 +863,21 @@ class ReportGenerator:
         return "ℹ️ Info", f"{suggestions} suggestion(s)"
     
     def _get_git_status(self, data: Dict[str, Any]) -> tuple:
-        """Get git tool status."""
+        """Get git tool status - handles both 'git' and 'git_info' keys."""
         if not data:
             return "⚠️ Skip", "Tool did not run"
+        
+        # Check for git_info structure (new format)
+        if data.get('branch'):
+             # Standard git info found
+             branch = data.get('branch')
+             changes = data.get('uncommitted_changes', 0)
+             return "ℹ️ Info", f"Branch: {branch}, {changes} pending"
+        
+        # Fallback for legacy 'has_git' structure
         if not data.get('has_git', False):
-            return "ℹ️ Info", "Not a git repository"
+             return "ℹ️ Info", "Not a git repository"
+        
         status = data.get('status', 'Unknown')
         days = data.get('days_since_commit', 0)
         return "ℹ️ Info", f"{status}, {days} days since commit"
@@ -900,6 +949,16 @@ class ReportGenerator:
                 f.write(f"\n*...and {len(dead_functions) - 10} more*\n")
             f.write("\n")
         
+            f.write("\n")
+        
+        if dead_variables:
+             f.write(f"**Unused Variables ({len(dead_variables)}):**\n")
+             for var in dead_variables[:10]:
+                 f.write(f"- `{var.get('file', '')}:{var.get('line', '')}` - {var.get('name', '')}\n")
+             if len(dead_variables) > 10:
+                 f.write(f"\n*...and {len(dead_variables) - 10} more*\n")
+             f.write("\n")
+
         if unused_imports:
             # Group imports by file
             from collections import Counter

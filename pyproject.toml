@@ -1,33 +1,72 @@
+[tool.ruff]
+# Target Python 3.11+
+target-version = "py311"
+line-length = 100
+exclude = [
+    ".venv",
+    ".git",
+    "__pycache__",
+    "build",
+    "dist",
+    "site-packages",
+    "venv",
+    "*.egg-info",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "htmlcov",
+    "reports",
+    "backups",
+]
+
+[tool.ruff.lint]
+# Strategy: Select ALL rules, then ignore specific categories to reduce noise.
+select = ["ALL"]
+
+ignore = [
+    "D",       # Docstrings: Disable strict docstring requirements (too noisy for existing code)
+    "ANN",     # Annotations: Disable strict type hinting checks (let Mypy handle this if needed)
+    "TD",      # TODOs: Don't flag TODO comments as errors
+    "FIX",     # FIXMEs: Don't flag FIXME comments as errors
+    "COM812",  # Conflicts with formatter
+    "ISC001",  # Conflicts with formatter
+    "CPY",     # Copyright notices
+    "EM",      # Error messages formatting (too pedantic)
+    "TRY003",  # Long exception messages (too pedantic)
+    "S311",    # Pseudo-random generators (acceptable for non-crypto usage)
+    "T201",    # Print statements (acceptable in CLI apps)
+    "G004",    # Logging with f-strings (acceptable performance hit)
+    "ERA001",  # Commented-out code (high false positive rate)
+    "PLR0913", # Too many arguments in function call (refactor later)
+    "PLR0912", # Too many branches (refactor later)
+    "PLR0915", # Too many statements (refactor later)
+    "C901",    # Too complex (let C90 handle complexity)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are allowed to use asserts, private members, and magic values
+"tests/**/*" = ["S101", "SLF001", "PLR2004", "ARG", "FBT"]
+"app/main.py" = ["T201"]  # Allow print in entry point
+"**/test_*.py" = ["S101", "SLF001", "PLR2004", "ARG", "FBT"]
+"**/*_test.py" = ["S101", "SLF001", "PLR2004", "ARG", "FBT"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-wrap-aliases = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.mccabe]
+# McCabe complexity threshold
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 15
+max-statements = 60
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
-asyncio_default_fixture_loop_scope = "function"
-addopts = [
-    "--verbose",
-    "--cov=app",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-fail-under=0"
-]
-
-[tool.coverage.run]
-source = ["app"]
-omit = [
-    "*/tests/*",
-    "*/__pycache__/*",
-    "*/venv/*",
-    "*/.venv/*"
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-    "@abstractmethod"
-]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
