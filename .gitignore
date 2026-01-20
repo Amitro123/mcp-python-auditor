@@ -99,7 +99,6 @@ debug_*.log
 test_*.py
 demo_*.py
 verify_*.py
-ci_runner.py
 
 # Cache directories
 .ruff_cache/

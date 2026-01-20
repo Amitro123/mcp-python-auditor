@@ -47,7 +47,7 @@ FILES_TO_DELETE = [
     "app/tools/efficiency_tool.py.OLD",
     "app/tools/security_tool.py.OLD",
     
-    # Debug/test files
+    # Debug/test files (NOT ci_runner.py - that's needed for CI/CD!)
     "debug_audit.txt",
     "test_jinja2.py",
     "test_pr_gatekeeper.py",
@@ -55,7 +55,6 @@ FILES_TO_DELETE = [
     "new_analyzers.py",
     "dataset_templates.py",
     "verify_tools.py",
-    "ci_runner.py",
     
     # Coverage files
     ".coverage",
