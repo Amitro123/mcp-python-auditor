@@ -128,24 +128,56 @@ The following tools are required to run the audit but were not found:
 
 
 def run_bandit(path: Path) -> dict:
-    """Run FastAudit (Ruff) for security and quality checks."""
+    """Run real Bandit security analysis (using pyproject.toml config)."""
+    import subprocess
+    import json
     try:
         target_path = Path(path).resolve()
-        tool = FastAuditTool()
-        result = tool.analyze(target_path)
         
-        # Map to expected format for backward compatibility
+        # Use explicit config to exclude tests and skip false positives
+        cmd = [
+            sys.executable, "-m", "bandit",
+            "-c", "pyproject.toml",
+            "-r", str(target_path),
+            "-f", "json",
+            "--exit-zero"
+        ]
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                cwd=str(target_path), # Important: run from root so config is found
+                stdin=subprocess.DEVNULL
+            )
+        except subprocess.TimeoutExpired:
+            return {"tool": "bandit", "status": "error", "error": "Timeout (>120s)", "issues": []}
+            
+        bandit_data = {}
+        if result.stdout.strip():
+            try:
+                bandit_data = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                pass
+                
+        issues = bandit_data.get("results", [])
+        
+        # Filter logic is now handled by Bandit config (B101 etc skipped), 
+        # but we can add extra safety here if needed.
+        
         return {
-            "tool": "ruff",
-            "status": result.get("status", "clean"),
-            "issues": result.get("security", []) + result.get("quality", []),
-            "total_issues": result.get("total_issues", 0),
-            "security_count": len(result.get("security", [])),
-            "quality_count": len(result.get("quality", [])),
-            "files_with_issues": result.get("files_with_issues", 0)
+            "tool": "bandit",
+            "status": "issues_found" if issues else "clean",
+            "total_issues": len(issues),
+            "issues": issues,
+            "metrics": bandit_data.get("metrics", {}),
+            "files_scanned": len(bandit_data.get("metrics", {}))
         }
+        
     except Exception as e:
-        return {"tool": "ruff", "status": "error", "error": str(e), "issues": [], "total_issues": 0}
+        return {"tool": "bandit", "status": "error", "error": str(e), "issues": [], "total_issues": 0}
 
 
 def run_secrets(path: Path) -> dict:
@@ -2133,6 +2165,14 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
                         log(f"[REMOTE-AUDIT] {key} failed: {e}")
                         results[key] = {"error": str(e), "status": "error"}
                 
+                # Manual run for real Bandit (Security)
+                try:
+                    log("[REMOTE-AUDIT] Running bandit (real security)...")
+                    results["bandit"] = run_bandit(temp_path)
+                except Exception as e:
+                    log(f"[REMOTE-AUDIT] bandit failed: {e}")
+                    results["bandit"] = {"error": str(e)}
+                
                 duration = f"{time.time() - start_time:.1f}s"
                 
                 # Generate report using existing function
@@ -2250,6 +2290,14 @@ def generate_full_report(path: str) -> str:
         except Exception as e:
             log(f"   [FAIL] {key} failed: {e}")
             results[key] = {"error": str(e)}
+
+    # Manual run for real Bandit
+    try:
+        log("   [RUNNING] bandit (real security)...")
+        results["bandit"] = run_bandit(target_path)
+    except Exception as e:
+        log(f"   [FAIL] bandit failed: {e}")
+        results["bandit"] = {"error": str(e)}
 
     # Calculate a simple score (can be enhanced)
     score = 100
