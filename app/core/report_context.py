@@ -57,6 +57,7 @@ def build_report_context(
         'complexity': _normalize_complexity(raw_results),
         'efficiency': _normalize_efficiency(raw_results),
         'duplication': _normalize_duplication(raw_results),
+        'quality': _normalize_quality(raw_results),
         'deadcode': _normalize_deadcode(raw_results),
         'cleanup': _normalize_cleanup(raw_results),
         'typing': _normalize_typing(raw_results),
@@ -210,6 +211,20 @@ def _normalize_complexity(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize complexity analysis data."""
     data = raw_results.get('complexity', {})
     
+    # Fallback to Ruff (quality) complexity findings if main tool missing
+    if not data and ('quality' in raw_results or 'ruff' in raw_results):
+        ruff_data = raw_results.get('quality') or raw_results.get('ruff', {})
+        complexity_issues = ruff_data.get('complexity', [])
+        if complexity_issues:
+            return {
+                'available': True,
+                'total_functions': 'N/A', # Not available from Ruff directly
+                'average_complexity': 'N/A',
+                'high_complexity': complexity_issues, # Mapping Ruff complexity issues
+                'very_high_complexity': [], 
+                'has_complex_functions': len(complexity_issues) > 0
+            }
+
     return {
         'available': bool(data),
         'total_functions': data.get('total_functions_analyzed', 0),
@@ -347,6 +362,7 @@ def _build_tools_summary(raw_results: Dict[str, Any]) -> List[Dict[str, Any]]:
         ('efficiency', '⚡ Efficiency'),
         ('cleanup', '🧹 Cleanup'),
         ('secrets', '🔐 Secrets'),
+        ('quality', '🧹 Code Quality'),
         ('security', '🔒 Security (Bandit)'),
         ('tests', '✅ Tests'),
         ('gitignore', '📋 Gitignore'),
@@ -435,6 +451,7 @@ def _get_tool_status(tool_key: str, data: Dict[str, Any]) -> tuple:
     return 'ℹ️ Info', 'Analysis complete'
 
 
+
 def _calculate_top_priorities(raw_results: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Calculate top 3 priority fixes with impact estimates."""
     priorities = []
@@ -469,6 +486,38 @@ def _calculate_top_priorities(raw_results: Dict[str, Any]) -> List[Dict[str, Any
         })
     
     return priorities[:3]
+
+
+def _normalize_quality(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize quality/linting data (from Ruff/FastAudit)."""
+    data = raw_results.get('quality') or raw_results.get('ruff', {})
+    
+    issues = []
+    
+    # 1. Try aggregated categories (FastAuditTool)
+    if 'quality' in data or 'style' in data:
+        issues.extend(data.get('quality', []))
+        issues.extend(data.get('style', []))
+        issues.extend(data.get('imports', []))
+        issues.extend(data.get('performance', []))
+    
+    # 2. Fallback to flat 'issues' list (Basic Ruff)
+    elif 'issues' in data:
+        all_issues = data.get('issues', [])
+        # Filter out Security (S) and Complexity (C90) issues as they have their own sections
+        issues = [
+            i for i in all_issues 
+            if not (i.get('code', '').startswith('S') or i.get('code', '').startswith('C90'))
+        ]
+    
+    return {
+        'available': bool(data) and 'error' not in data,
+        'total_issues': len(issues),
+        'issues': issues,  # All linting issues
+        'has_issues': len(issues) > 0,
+        'severity_counts': _count_by_severity(issues),
+        'files_with_issues': data.get('files_with_issues', 0)
+    }
 
 
 def _count_by_severity(issues: List[Dict[str, Any]]) -> Dict[str, int]:

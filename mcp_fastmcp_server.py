@@ -2149,7 +2149,7 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
                     "typing": TypingTool(),
                     "duplication": DuplicationTool(),
                     "deadcode": DeadcodeTool(),
-                    "ruff": FastAuditTool(),
+                    # "ruff": FastAuditTool(),  <-- REMOVED to avoid confusion. We run security/quality separately below.
                     "secrets": SecretsTool(),
                     "tests": TestsTool(),
                     "git_info": GitTool(),
@@ -2166,6 +2166,23 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
                         results[key] = {"error": str(e), "status": "error"}
                 
                 # Manual run for real Bandit (Security)
+                try:
+                    log("[REMOTE-AUDIT] Running bandit (real security)...")
+                    results["bandit"] = run_bandit(temp_path)
+                except Exception as e:
+                    log(f"[REMOTE-AUDIT] bandit failed: {e}")
+                    results["bandit"] = {"error": str(e)}
+
+                # Manual run for Quality (Ruff)
+                try:
+                    log("[REMOTE-AUDIT] Running ruff (quality)...")
+                    # We can use FastAuditTool but purely for quality mapping if needed, 
+                    # or just rely on its 'quality' output key.
+                    # For now let's map it to 'quality' key so it doesn't conflict with bandit
+                    results["quality"] = FastAuditTool().analyze(temp_path)
+                except Exception as e:
+                    log(f"[REMOTE-AUDIT] ruff failed: {e}")
+                    results["quality"] = {"error": str(e)}
                 try:
                     log("[REMOTE-AUDIT] Running bandit (real security)...")
                     results["bandit"] = run_bandit(temp_path)
@@ -2280,6 +2297,7 @@ def generate_full_report(path: str) -> str:
     }
     
     # Run all tools explicitly to catch errors
+    # Run all tools explicitly to catch errors
     results = {}
     for key, tool in tools.items():
         try:
@@ -2298,6 +2316,14 @@ def generate_full_report(path: str) -> str:
     except Exception as e:
         log(f"   [FAIL] bandit failed: {e}")
         results["bandit"] = {"error": str(e)}
+
+    # Manual run for Quality (Ruff)
+    try:
+        log("   [RUNNING] ruff (quality)...")
+        results["quality"] = FastAuditTool().analyze(target_path)
+    except Exception as e:
+        log(f"   [FAIL] ruff failed: {e}")
+        results["quality"] = {"error": str(e)}
 
     # Calculate a simple score (can be enhanced)
     score = 100

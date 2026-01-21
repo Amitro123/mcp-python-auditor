@@ -59,6 +59,22 @@
 
 ## 🧹 Code Quality
 
+### Linting Issues
+{{ quality.total_issues }} issues found
+
+{% if quality.total_issues > 0 %}
+- High Severity: {{ quality.severity_counts.HIGH or 0 }}
+- Medium Severity: {{ quality.severity_counts.MEDIUM or 0 }}
+- Low: {{ quality.severity_counts.LOW or 0 }}
+
+**Top Issues**:
+{% for issue in quality.issues[:10] %}
+- {{ issue.severity }}: {{ issue.message }} (`{{ issue.file }}:{{ issue.line }}`)
+{% endfor %}
+{% else %}
+✅ No linting issues detected
+{% endif %}
+
 ### Dead Code
 {{ deadcode.total_items }} items found
 
