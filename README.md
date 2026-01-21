@@ -442,6 +442,12 @@ docker-compose up --build
 - ✅ **Zero Noise**: 100% elimination of `.venv` and `site-packages` leaks
 - ✅ **Accurate Counts**: Reports now show exact number of source files scanned
 
+**v2.6 - Robust Engine Upgrade (Jan 2026)**
+- ✅ **Remote Audit Stability**: Fixed `subprocess` compatibility and path handling for clones
+- ✅ **Report Generation Protection**: Prevents crashes with fallback mechanisms for missing data
+- ✅ **Path Safety**: Enhanced encoding handling for deep directory structures
+- ✅ **Test Reliability**: Fixes for E2E workflows and remote assertions
+
 **v2.4 - Remote Repository Auditing (Jan 14, 2026)**
 - ✅ **NEW: Remote Audit tool** - Audit any public Git repo without manual cloning
 - ✅ **Zero Setup** - Automatic temp directory management and cleanup

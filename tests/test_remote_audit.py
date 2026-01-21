@@ -138,8 +138,18 @@ class TestRemoteAuditCloning:
             mock_temp.return_value.__enter__.return_value = mock_temp_path
             
             with patch('subprocess.run') as mock_run:
-                # Mock timeout
-                mock_run.side_effect = subprocess.TimeoutExpired("git", 300)
+                # Mock timeout only for git clone
+                def side_effect(*args, **kwargs):
+                    cmd_args = args[0]
+                    # Check if it's the version check
+                    if "--version" in cmd_args or (len(cmd_args) > 1 and cmd_args[1] == "--version"):
+                        return Mock(returncode=0, stdout="git version 2.30.0", stderr="")
+                    # Check if it's the clone command
+                    elif "clone" in cmd_args:
+                        raise subprocess.TimeoutExpired(cmd_args, 300)
+                    return Mock(returncode=0)
+
+                mock_run.side_effect = side_effect
                 
                 from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
                 
@@ -190,9 +200,8 @@ class TestRemoteAuditExecution:
                 
                 result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
                 result = json.loads(result_json)
-                
                 assert result["status"] == "warning"
-                assert "no Python files" in result["message"].lower()
+                assert "no python files" in result["message"].lower()
     
     def test_successful_audit(self, tmp_path):
         """Test successful audit of repository."""

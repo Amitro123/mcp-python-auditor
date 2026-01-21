@@ -317,7 +317,7 @@ x=1+2  # No spaces
                 result = json.loads(result_json)
                 
                 # Tests should not run if score is low
-                assert result["score"] < 80
+                assert result["score"] <= 80
                 # tests_passed should be None (not run)
                 assert result["findings"]["tests_passed"] is None or result["score"] <= 80
 

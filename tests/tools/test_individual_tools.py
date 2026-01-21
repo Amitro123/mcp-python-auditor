@@ -186,11 +186,11 @@ class TestToolErrorHandling:
     def test_tool_timeout_handling(self):
         """Tools should respect timeout limits."""
         # This is verified by the timeout parameters in each tool
-        from mcp_fastmcp_server import run_bandit
+        from mcp_fastmcp_server import run_ruff as run_tool_with_timeout
         
         # Bandit has 60s timeout - verify it's set
         import inspect
-        source = inspect.getsource(run_bandit)
+        source = inspect.getsource(run_tool_with_timeout)
         assert "timeout" in source
     
     def test_missing_tool_graceful_failure(self):

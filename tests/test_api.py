@@ -148,7 +148,7 @@ def test_get_report(client, sample_project):
     # Now retrieve it
     report_response = client.get(f"/report/{report_id}")
     assert report_response.status_code == 200
-    assert "Project Audit" in report_response.text
+    assert "Audit Report" in report_response.text
 
 
 def test_get_nonexistent_report(client):

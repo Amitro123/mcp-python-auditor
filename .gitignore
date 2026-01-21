@@ -107,3 +107,9 @@ verify_*.py
 
 # Lock files (if not using uv for dependency management)
 uv.lock
+
+out_*.txt
+full_out.txt
+test_output.txt
+test_remote_output.txt
+SELF_AUDIT_REPORT.md

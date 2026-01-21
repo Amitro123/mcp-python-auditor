@@ -11,9 +11,9 @@
 ### Score Breakdown
 | Component | Penalty | Details |
 |-----------|---------|---------|
-| 🔒 Security | -{{ security_penalty }} | {{ raw_results.bandit.total_issues }} issues, {{ raw_results.secrets.total_secrets }} secrets |
-| ✅ Testing | -{{ testing_penalty }} | {{ raw_results.tests.coverage_percent }}% coverage |
-| 🧹 Quality | -{{ quality_penalty }} | {{ raw_results.dead_code.total_dead }} dead code items |
+| 🔒 Security | -{{ security_penalty }} | {{ security.total_issues }} issues, {{ secrets.total_secrets }} secrets |
+| ✅ Testing | -{{ testing_penalty }} | {{ tests.coverage_percent }}% coverage |
+| 🧹 Quality | -{{ quality_penalty }} | {{ deadcode.total_items }} dead code items |
 | **Final** | **{{ score }}** | Grade: {{ grade }} |
 
 ---
@@ -21,38 +21,38 @@
 ## 🔒 Security Analysis
 
 **Status**: {{ security_severity.label }}  
-**Issues Found**: {{ raw_results.bandit.total_issues }}  
-**Secrets Detected**: {{ raw_results.secrets.total_secrets }}
+**Issues Found**: {{ security.total_issues }}  
+**Secrets Detected**: {{ secrets.total_secrets }}
 
-{% if raw_results.bandit.total_issues > 0 %}
+{% if security.total_issues > 0 %}
 ### Security Issues
-{% for issue in raw_results.bandit.issues[:5] %}
+{% for issue in security.issues[:5] %}
 - **{{ issue.severity }}**: {{ issue.message }} (`{{ issue.file }}:{{ issue.line }}`)
 {% endfor %}
-{% if raw_results.bandit.total_issues > 5 %}
-... and {{ raw_results.bandit.total_issues - 5 }} more issues
+{% if security.total_issues > 5 %}
+... and {{ security.total_issues - 5 }} more issues
 {% endif %}
 {% else %}
-✅ No security issues detected by Bandit
+✅ No security issues detected
 {% endif %}
 
 ---
 
 ## 🧪 Test Coverage
 
-**Coverage**: {{ raw_results.tests.coverage_percent }}%  
+**Coverage**: {{ tests.coverage_percent }}%  
 **Assessment**: {{ coverage_severity.label }}  
 **Status**: {{ coverage_severity.description }}
 
 **Recommendation**: {{ coverage_severity.recommendation }}
 
 **Test Breakdown**:
-- Unit Tests: {{ raw_results.tests.test_breakdown.unit }}
-- Integration Tests: {{ raw_results.tests.test_breakdown.integration }}
-- E2E Tests: {{ raw_results.tests.test_breakdown.e2e }}
+- Unit Tests: {{ tests.test_breakdown.unit }}
+- Integration Tests: {{ tests.test_breakdown.integration }}
+- E2E Tests: {{ tests.test_breakdown.e2e }}
 
-{% if raw_results.tests.status == "error" %}
-⚠️ **Warning**: Test execution encountered errors. Coverage may be incomplete.
+{% if tests.warning %}
+⚠️ **Warning**: {{ tests.warning }}
 {% endif %}
 
 ---
@@ -60,15 +60,15 @@
 ## 🧹 Code Quality
 
 ### Dead Code
-{{ raw_results.dead_code.total_dead }} items found
+{{ deadcode.total_items }} items found
 
-{% if raw_results.dead_code.total_dead > 0 %}
-- Unused variables: {{ raw_results.dead_code.dead_variables|length }}
-- Unused imports: {{ raw_results.dead_code.unused_imports|length }}
-- Dead functions: {{ raw_results.dead_code.dead_functions|length }}
+{% if deadcode.total_items > 0 %}
+- Unused variables: {{ deadcode.unused_vars|length }}
+- Unused imports: {{ deadcode.unused_imports|length }}
+- Dead functions: {{ deadcode.dead_functions|length }}
 
 **Top Issues**:
-{% for item in (raw_results.dead_code.dead_variables + raw_results.dead_code.unused_imports)[:5] %}
+{% for item in (deadcode.unused_vars + deadcode.unused_imports)[:5] %}
 - `{{ item.name }}` in {{ item.file }}:{{ item.line }}
 {% endfor %}
 {% else %}
@@ -76,13 +76,13 @@
 {% endif %}
 
 ### Code Duplication
-{{ raw_results.duplication.total_duplicates }} similar code blocks found
+{{ duplication.total_duplicates }} similar code blocks found
 
-{% if raw_results.duplication.total_duplicates > 10 %}
+{% if duplication.total_duplicates > 10 %}
 ⚠️ High duplication detected. Consider refactoring common patterns.
 
 **Most Duplicated** (similarity > 95%):
-{% for dup in raw_results.duplication.duplicates %}
+{% for dup in duplication.duplicates %}
 {% if dup.similarity > 95 %}
 - `{{ dup.function_name }}` ({{ dup.similarity|round(1) }}% similar) - {{ dup.count }} instances
 {% endif %}
@@ -100,11 +100,11 @@
 {% endif %}
 
 {% if security_penalty >= 20 %}
-2. **🔴 CRITICAL - Security**: Address {{ raw_results.bandit.total_issues + raw_results.secrets.total_secrets }} security findings immediately
+2. **🔴 CRITICAL - Security**: Address {{ security.total_issues + secrets.total_secrets }} security findings immediately
 {% endif %}
 
 {% if quality_penalty >= 15 %}
-3. **🟡 HIGH - Code Quality**: Clean up {{ raw_results.dead_code.total_dead }} dead code items
+3. **🟡 HIGH - Code Quality**: Clean up {{ deadcode.total_items }} dead code items
 {% endif %}
 
 {% if score < 70 %}
@@ -119,8 +119,8 @@
 
 ## 🔧 Tools Executed
 
-{% for tool_name, tool_data in raw_results.items() %}
-- **{{ tool_name }}**: {{ tool_data.status }} ({{ tool_data.duration_s }}s)
+{% for tool in tools_summary %}
+- **{{ tool.name }}**: {{ tool.status }}
 {% endfor %}
 
 ---

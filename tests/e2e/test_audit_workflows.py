@@ -72,7 +72,7 @@ def subtract(a: int, b: int) -> int:
         # Check that job completed
         from mcp_fastmcp_server import JOBS
         assert job_id in JOBS
-        assert JOBS[job_id]["status"] == "completed"
+        assert JOBS[job_id]["status"] == "completed", f"Job failed with error: {JOBS[job_id].get('error')}"
         
         # Check that report was generated
         assert "report_path" in JOBS[job_id]
@@ -81,9 +81,11 @@ def subtract(a: int, b: int) -> int:
         
         # Verify report content (UTF-8 encoding for emojis)
         content = report_path.read_text(encoding='utf-8')
-        assert "Project Audit Report" in content
-        assert "Tool Execution Summary" in content
-        assert "Score:" in content
+        content = report_path.read_text(encoding='utf-8')
+        # Check for either Legacy or V2 report format
+        assert "Project Audit Report" in content or "Python Audit Report" in content
+        assert "Tool Execution Summary" in content or "Tools Executed" in content
+        assert "Score:" in content or "Overall Score" in content
     
     @pytest.mark.skip(reason="run_auto_fix is wrapped by FastMCP - cannot call directly")
     def test_dry_run_to_execution_flow(self, test_project):

@@ -98,7 +98,7 @@ def test_hello():
         # All tools should return results
         for tool_name, result in results.items():
             assert "status" in result, f"{tool_name} missing status"
-            assert result["status"] in ["analyzed", "clean", "issues_found", "skipped", "error", "success"]
+            assert result["status"] in ["analyzed", "clean", "issues_found", "skipped", "error", "success", "cleanup_available", "vulnerabilities_found", "not_a_repo"]
 
 
 class TestReportGeneration:
