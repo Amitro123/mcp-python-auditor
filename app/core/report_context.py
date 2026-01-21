@@ -182,6 +182,7 @@ def _normalize_tests(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     total_files = data.get('total_test_files', 0)
     tests_passed = data.get('tests_passed', 0)
     tests_failed = data.get('tests_failed', 0)
+    tests_skipped = data.get('tests_skipped', 0)
     total_executed = tests_passed + tests_failed
     
     # Detect premature stop
@@ -190,20 +191,35 @@ def _normalize_tests(raw_results: Dict[str, Any]) -> Dict[str, Any]:
         total_executed > 0 and 
         total_executed < total_files
     )
+
+    warning = data.get('warning', '')
+
+    # Validation: Test files found but no results
+    if total_files > 0 and total_executed == 0:
+        msg = "⚠️ Test files found but no tests executed."
+        warning = f"{warning} {msg}" if warning else msg
+
+    # Validation: Coverage reported but no test files
+    coverage_percent = data.get('coverage_percent', 0)
+    if coverage_percent > 0 and total_files == 0:
+        msg = "⚠️ Coverage reported but no test files detected."
+        warning = f"{warning} {msg}" if warning else msg
     
     return {
         'available': bool(data),
         'coverage_percent': data.get('coverage_percent', -1),
+        'coverage_report': data.get('coverage_report', ''),
         'total_test_files': total_files,
         'tests_passed': tests_passed,
         'tests_failed': tests_failed,
+        'tests_skipped': tests_skipped,
         'total_executed': total_executed,
         'premature_stop': premature_stop,
         'has_unit': data.get('has_unit_tests', False),
         'has_integration': data.get('has_integration_tests', False),
         'has_e2e': data.get('has_e2e_tests', False),
         'test_breakdown': data.get('test_breakdown', {}),
-        'warning': data.get('warning', '')
+        'warning': warning
     }
 
 
