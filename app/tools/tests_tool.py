@@ -43,8 +43,8 @@ class TestsTool(BaseTool):
             # Detect virtual environment
             venv_python = self._detect_venv_python(project_path)
             
-            # Try to get coverage if pytest is available
-            coverage_percent, coverage_warning, coverage_table = self._get_coverage(project_path, venv_python)
+            # Run tests and coverage
+            test_results = self._run_tests_and_coverage(project_path, venv_python)
             
             # Collect test names
             test_list = self._collect_test_names(project_path, venv_python)
@@ -55,14 +55,17 @@ class TestsTool(BaseTool):
                 "has_unit_tests": has_unit,
                 "has_integration_tests": has_integration,
                 "has_e2e_tests": has_e2e,
-                "coverage_percent": coverage_percent,
+                "coverage_percent": test_results["coverage_percent"],
+                "coverage_report": test_results["coverage_report"],
+                "tests_passed": test_results["tests_passed"],
+                "tests_failed": test_results["tests_failed"],
+                "tests_skipped": test_results["tests_skipped"],
                 "test_list": test_list,  # List of test names
-                "coverage_report": coverage_table  # NEW: Detailed coverage table
             }
             
-            # Add warning if venv not found
-            if coverage_warning:
-                result["warning"] = coverage_warning
+            # Add warning if present
+            if test_results.get("warning"):
+                result["warning"] = test_results["warning"]
             
             return result
         except Exception as e:
@@ -205,32 +208,45 @@ class TestsTool(BaseTool):
             logger.warning(f"Failed to collect test names: {e}")
             return []
     
-    def _get_coverage(self, project_path: Path, venv_python: Path) -> tuple[int, Optional[str], str]:
-        """Try to get test coverage percentage and detailed table.
-        
-        Returns:
-            Tuple of (coverage_percent, warning_message, coverage_table)
+    def _run_tests_and_coverage(self, project_path: Path, venv_python: Path) -> Dict[str, Any]:
         """
-        # Skip coverage in test mode to avoid hanging
-        if os.environ.get('PYTEST_CURRENT_TEST'):
-            logger.debug("Skipping coverage during pytest run")
-            return 0, None, ""
+        Run tests and coverage analysis.
+        Returns dictionary with:
+        - coverage_percent (int)
+        - coverage_report (str)
+        - tests_passed (int)
+        - tests_failed (int)
+        - tests_skipped (int)
+        - warning (str or None)
+        """
+        result_dict = {
+            "coverage_percent": 0,
+            "coverage_report": "",
+            "tests_passed": 0,
+            "tests_failed": 0,
+            "tests_skipped": 0,
+            "warning": None
+        }
         
+        # Skip coverage/execution in test mode to avoid hanging
+        if os.environ.get('PYTEST_CURRENT_TEST'):
+            logger.debug("Skipping test execution during pytest run")
+            return result_dict
+
         try:
-            # Quick check: if no test files found, return 0 immediately
+             # Quick check: if no test files found, return immediately
             test_files = self._find_test_files(project_path)
             if not test_files:
-                logger.debug("No test files found, skipping coverage")
-                return 0, None, ""
+                logger.debug("No test files found, skipping execution")
+                return result_dict
             
-            # Set PYTHONPATH to ensure coverage can find modules
+            # Set PYTHONPATH
             env = os.environ.copy()
             env["PYTHONPATH"] = str(project_path)
             
-            # Use the provided Python interpreter (venv_python is now always set)
             python_cmd = str(venv_python)
             
-            # Always include coverage flags
+            # Command to run tests AND coverage
             cmd = [
                 python_cmd, '-m', 'pytest', 
                 str(project_path),
@@ -240,13 +256,13 @@ class TestsTool(BaseTool):
                 '--color=no',
                 '--ignore=node_modules', '--ignore=venv', '--ignore=.venv',
                 '--ignore=dist', '--ignore=build', '--ignore=.git',
-                '--ignore=frontend', '--ignore=playwright-report', '--ignore=test-results'
+                '--ignore=frontend', '--ignore=playwright-report', '--ignore=test-results',
+                '--ignore=test_results.txt'  # Avoid collecting artifact file
             ]
             
-            logger.info(f"Running coverage command: {' '.join(cmd)}")
+            logger.info(f"Running test & coverage command: {' '.join(cmd)}")
             
-            # Try running coverage with 3-minute timeout for heavy E2E tests
-            result = subprocess.run(
+            run_result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -255,36 +271,74 @@ class TestsTool(BaseTool):
                 env=env
             )
             
-            output = result.stdout + "\n" + result.stderr
+            output = run_result.stdout + "\n" + run_result.stderr
+
+            # 1. Parse Test Results (Passed/Failed/Skipped)
+            # Use stdout specifically as summary is usually there
+            # Scan from the end, looking for the summary line
+            lines = run_result.stdout.strip().splitlines()
+            summary_found = False
             
+            # Check last 20 lines of stdout
+            for line in reversed(lines[-20:]):
+                # Typical summary line starts and ends with = and contains "passed" or "failed"
+                # Example: ============ 3 failed, 143 passed, 1 skipped, 6 warnings in 6.48s =============
+                # Example: == 1 passed in 0.1s ==
+                if (line.startswith('=') and line.endswith('=') and
+                    ('passed' in line or 'failed' in line or 'skipped' in line or 'no tests ran' in line)):
+
+                    p = re.search(r'(\d+) passed', line)
+                    f = re.search(r'(\d+) failed', line)
+                    s = re.search(r'(\d+) skipped', line)
+
+                    if p: result_dict["tests_passed"] = int(p.group(1))
+                    if f: result_dict["tests_failed"] = int(f.group(1))
+                    if s: result_dict["tests_skipped"] = int(s.group(1))
+
+                    summary_found = True
+                    logger.debug(f"Found test summary line: {line}")
+                    break
+
+            if not summary_found:
+                # Fallback: try to search in the whole output combined
+                logger.debug("Summary line not found in stdout tail, searching combined output")
+                lines = output.strip().splitlines()
+                for line in reversed(lines[-20:]):
+                     if (line.startswith('=') and line.endswith('=') and
+                        ('passed' in line or 'failed' in line or 'skipped' in line)):
+                        p = re.search(r'(\d+) passed', line)
+                        f = re.search(r'(\d+) failed', line)
+                        s = re.search(r'(\d+) skipped', line)
+                        if p: result_dict["tests_passed"] = int(p.group(1))
+                        if f: result_dict["tests_failed"] = int(f.group(1))
+                        if s: result_dict["tests_skipped"] = int(s.group(1))
+                        break
+
+            # 2. Parse Coverage
             # Check for common errors
-            if "No module named" in result.stderr:
-                # Check specifically for pytest-cov missing
-                if "pytest_cov" in result.stderr or "coverage" in result.stderr:
+            if "No module named" in run_result.stderr:
+                if "pytest_cov" in run_result.stderr or "coverage" in run_result.stderr:
                     error_msg = "⚠️ MISSING PREREQUISITE: 'pytest-cov' is not installed in the target project. Coverage cannot be calculated."
                     logger.warning(error_msg)
-                    return 0, error_msg, ""
+                    result_dict["warning"] = error_msg
             
-            # Regex to find "TOTAL ... 78%"
-            # Matches: TOTAL   100   20   80%
             match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
-            coverage_pct = int(match.group(1)) if match else 0
+            result_dict["coverage_percent"] = int(match.group(1)) if match else 0
             
-            # Extract the coverage table for the report
-            coverage_table = ""
             coverage_match = re.search(r'(Name\s+Stmts\s+Miss.*?TOTAL.*?\d+%)', output, re.DOTALL)
             if coverage_match:
-                coverage_table = coverage_match.group(1).strip()
-            # If no table found, take last 300 chars as raw output
-            elif coverage_pct == 0:
-                 coverage_table = output[-300:]
+                result_dict["coverage_report"] = coverage_match.group(1).strip()
+            elif result_dict["coverage_percent"] == 0:
+                 # If we failed to get coverage but maybe ran tests
+                 result_dict["coverage_report"] = output[-300:]
 
-            return coverage_pct, None, coverage_table
-        
+            return result_dict
+
         except subprocess.TimeoutExpired:
-            logger.warning("Coverage analysis timed out (300s limit)")
-            return 0, "Warning: Coverage analysis timed out", ""
+            logger.warning("Test analysis timed out (300s limit)")
+            result_dict["warning"] = "Warning: Test analysis timed out"
+            return result_dict
         except Exception as e:
-            logger.debug(f"Coverage analysis failed: {e}")
-            return 0, f"Warning: Coverage analysis failed - {str(e)}", ""
-
+            logger.debug(f"Test analysis failed: {e}")
+            result_dict["warning"] = f"Warning: Test analysis failed - {str(e)}"
+            return result_dict
