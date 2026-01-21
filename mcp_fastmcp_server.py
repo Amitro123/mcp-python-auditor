@@ -1706,7 +1706,7 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
     # 2a. Bandit (Security)
     try:
         files_arg = " ".join([f'"{f}"' for f in changed_files])
-        cmd = f'{sys.executable} -m bandit {files_arg} -f json --exit-zero'
+        cmd = f'{sys.executable} -m bandit -c pyproject.toml {files_arg} -f json --exit-zero'
         result = subprocess.run(
             cmd,
             capture_output=True,

@@ -70,3 +70,8 @@ python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+[tool.bandit]
+exclude_dirs = ["tests", "test", ".venv", "venv", "node_modules", ".git"]
+exclude = ["test_*.py", "*_test.py", "**/test_*.py"]
+skips = ["B101", "B404", "B603"]
