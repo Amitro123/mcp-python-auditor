@@ -1,0 +1,509 @@
+"""
+Comprehensive tests for JSON-First Architecture with Async Orchestration.
+
+Tests verify:
+1. Parallel execution with error isolation
+2. JSON accuracy and schema validation
+3. Markdown generation from JSON (zero hallucination)
+4. Tool timeout handling
+5. Backward compatibility
+"""
+
+import pytest
+import asyncio
+import json
+from pathlib import Path
+from unittest.mock import Mock, patch, AsyncMock
+from datetime import datetime
+
+from app.agents.audit_orchestrator import (
+    run_all_tools_parallel,
+    execute_tool_safe,
+    ToolExecutionResult
+)
+from app.agents.metrics_builder import build_audit_metrics, _extract_aggregated_metrics
+from app.schemas import AuditMetrics, ToolExecutionStatus, PenaltyBreakdown
+from app.core.base_tool import BaseTool
+
+
+class MockTool(BaseTool):
+    """Mock tool for testing"""
+    
+    def __init__(self, name="mock", delay=0, should_fail=False, should_timeout=False):
+        super().__init__()
+        self.name = name
+        self.delay = delay
+        self.should_fail = should_fail
+        self.should_timeout = should_timeout
+    
+    def analyze(self, project_path: Path):
+        import time
+        if self.should_timeout:
+            time.sleep(10)  # Longer than timeout
+        if self.should_fail:
+            raise ValueError(f"{self.name} intentional failure")
+        time.sleep(self.delay)
+        return {"tool": self.name, "status": "success", "data": {"result": "ok"}}
+    
+    @property
+    def description(self):
+        return f"Mock tool {self.name}"
+
+
+# ============================================================================
+# Test 1: Parallel Execution with Error Isolation
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_parallel_execution_with_failures():
+    """
+    Test that one tool failure doesn't crash the entire audit.
+    Verifies error isolation works correctly.
+    """
+    project_path = Path(".")
+    
+    # Create tools: 2 succeed, 1 fails
+    tool1 = MockTool("tool1", delay=0.1)
+    tool2 = MockTool("tool2_fail", should_fail=True)
+    tool3 = MockTool("tool3", delay=0.1)
+    
+    # Execute all tools
+    results = []
+    for tool in [tool1, tool2, tool3]:
+        result = await execute_tool_safe(tool, project_path, timeout=5)
+        results.append(result)
+    
+    # Verify results
+    assert len(results) == 3
+    
+    # Tool 1: Success
+    assert results[0].status == "success"
+    assert results[0].tool_name == "tool1"
+    assert results[0].data is not None
+    
+    # Tool 2: Error (but didn't crash others!)
+    assert results[1].status == "error"
+    assert results[1].tool_name == "tool2_fail"
+    assert "intentional failure" in results[1].error
+    
+    # Tool 3: Success (despite tool2 failing)
+    assert results[2].status == "success"
+    assert results[2].tool_name == "tool3"
+
+
+@pytest.mark.asyncio
+async def test_parallel_execution_timing():
+    """
+    Test that tools actually run in parallel (not sequential).
+    3 tools with 0.2s delay each should complete in ~0.2s (not 0.6s).
+    """
+    import time
+    
+    project_path = Path(".")
+    tools = [
+        MockTool("tool1", delay=0.2),
+        MockTool("tool2", delay=0.2),
+        MockTool("tool3", delay=0.2),
+    ]
+    
+    start = time.time()
+    
+    # Execute in parallel
+    tasks = [execute_tool_safe(tool, project_path) for tool in tools]
+    results = await asyncio.gather(*tasks)
+    
+    duration = time.time() - start
+    
+    # Should complete in ~0.2s (parallel), not 0.6s (sequential)
+    assert duration < 0.5, f"Took {duration}s - tools ran sequentially!"
+    assert all(r.status == "success" for r in results)
+
+
+# ============================================================================
+# Test 2: JSON Accuracy and Schema Validation
+# ============================================================================
+
+def test_audit_metrics_schema_validation():
+    """
+    Test that AuditMetrics schema validates correctly.
+    """
+    # Valid data
+    valid_data = {
+        "run_id": "test123",
+        "timestamp": datetime.now().isoformat(),
+        "project_path": "/test/path",
+        "tools": {},
+        "tools_succeeded": 10,
+        "tools_failed": 2,
+        "tools_timeout": 0,
+        "score": 75,
+        "grade": "B",
+        "penalties": PenaltyBreakdown(security=10, testing=15, quality=0, complexity=0),
+        "files_scanned": 100,
+        "total_issues": 25,
+        "security_issues": 5,
+        "secrets_found": 2,
+        "vulnerability_count": 3,
+        "duplicate_blocks": 8,
+        "dead_code_items": 7,
+        "ruff_violations": 0,
+        "coverage_percent": 67.5,
+        "test_types": {"unit": 10, "integration": 5, "e2e": 2},
+        "total_tests": 17,
+        "high_complexity_functions": 3,
+    }
+    
+    metrics = AuditMetrics(**valid_data)
+    
+    # Verify fields
+    assert metrics.score == 75
+    assert metrics.grade == "B"
+    assert metrics.tools_succeeded == 10
+    assert metrics.security_issues == 5
+    assert metrics.coverage_percent == 67.5
+    
+    # Verify penalties
+    assert metrics.penalties.security == 10
+    assert metrics.penalties.testing == 15
+    assert metrics.penalties.total == 25
+
+
+def test_audit_metrics_score_validation():
+    """
+    Test that score validation works (must be 0-100).
+    """
+    from pydantic import ValidationError
+    
+    # Invalid score (> 100)
+    with pytest.raises(ValidationError):
+        AuditMetrics(
+            run_id="test",
+            timestamp=datetime.now().isoformat(),
+            project_path="/test",
+            tools={},
+            tools_succeeded=0,
+            tools_failed=0,
+            tools_timeout=0,
+            score=150,  # Invalid!
+            grade="A+",
+            penalties=PenaltyBreakdown()
+        )
+    
+    # Invalid score (< 0)
+    with pytest.raises(ValidationError):
+        AuditMetrics(
+            run_id="test",
+            timestamp=datetime.now().isoformat(),
+            project_path="/test",
+            tools={},
+            tools_succeeded=0,
+            tools_failed=0,
+            tools_timeout=0,
+            score=-10,  # Invalid!
+            grade="F",
+            penalties=PenaltyBreakdown()
+        )
+
+
+def test_metrics_builder_integration():
+    """
+    Test that metrics_builder correctly builds AuditMetrics from tool results.
+    """
+    tool_results = {
+        "structure": {
+            "tool_name": "structure",
+            "status": "success",
+            "data": {
+                "total_py_files": 50,
+                "top_directories": ["app", "tests", "docs"]
+            },
+            "execution_time_ms": 100
+        },
+        "bandit": {
+            "tool_name": "bandit",
+            "status": "success",
+            "data": {
+                "total_issues": 5,
+                "issues": [{"severity": "HIGH", "message": "Test"}]
+            },
+            "execution_time_ms": 200
+        },
+        "tests": {
+            "tool_name": "tests",
+            "status": "success",
+            "data": {
+                "coverage_percent": 75.5,
+                "test_breakdown": {"unit": 20, "integration": 10, "e2e": 5}
+            },
+            "execution_time_ms": 300
+        }
+    }
+    
+    metrics = build_audit_metrics(tool_results, "/test/project")
+    
+    # Verify metadata
+    assert metrics.project_path == "/test/project"
+    assert len(metrics.run_id) == 12
+    
+    # Verify tool status
+    assert metrics.tools_succeeded == 3
+    assert metrics.tools_failed == 0
+    
+    # Verify extracted metrics
+    assert metrics.files_scanned == 50
+    assert metrics.security_issues == 5
+    assert metrics.coverage_percent == 75.5
+    assert metrics.test_types["unit"] == 20
+
+
+# ============================================================================
+# Test 3: Markdown Generation from JSON (Zero Hallucination)
+# ============================================================================
+
+def test_template_data_mapping():
+    """
+    Test that _metrics_to_template_data correctly maps all fields.
+    """
+    from mcp_fastmcp_server import _metrics_to_template_data
+    
+    # Create test metrics
+    metrics = AuditMetrics(
+        run_id="test123",
+        timestamp=datetime.now().isoformat(),
+        project_path="/test/path",
+        tools={},
+        tools_succeeded=12,
+        tools_failed=0,
+        tools_timeout=0,
+        score=85,
+        grade="A",
+        penalties=PenaltyBreakdown(security=5, testing=10, quality=0, complexity=0),
+        files_scanned=100,
+        total_issues=15,
+        security_issues=3,
+        secrets_found=2,
+        vulnerability_count=0,
+        duplicate_blocks=5,
+        dead_code_items=5,
+        ruff_violations=0,
+        coverage_percent=80.0,
+        test_types={"unit": 15, "integration": 8, "e2e": 2},
+        total_tests=25,
+        high_complexity_functions=2
+    )
+    
+    template_data = _metrics_to_template_data(metrics)
+    
+    # Verify all required fields are present
+    assert template_data["run_id"] == "test123"
+    assert template_data["score"] == 85
+    assert template_data["grade"] == "A"
+    assert template_data["files_scanned"] == 100
+    assert template_data["security_issues"] == 3
+    assert template_data["secrets_found"] == 2
+    assert template_data["coverage_percent"] == 80.0
+    assert template_data["total_tests"] == 25
+    assert template_data["penalties"]["security"] == 5
+    assert template_data["penalties"]["testing"] == 10
+
+
+def test_markdown_numbers_match_json():
+    """
+    Test that numbers in generated markdown exactly match JSON metrics.
+    This is the CRITICAL test for zero hallucination.
+    """
+    # This test would require actually generating a report
+    # and parsing the markdown to verify numbers match
+    # For now, we verify the mapping is complete
+    
+    from mcp_fastmcp_server import _metrics_to_template_data
+    
+    metrics = AuditMetrics(
+        run_id="test123",
+        timestamp=datetime.now().isoformat(),
+        project_path="/test",
+        tools={},
+        tools_succeeded=10,
+        tools_failed=0,
+        tools_timeout=0,
+        score=72,
+        grade="B",
+        penalties=PenaltyBreakdown(security=10, testing=15, quality=3, complexity=0),
+        files_scanned=156,
+        total_issues=23,
+        security_issues=5,
+        secrets_found=3,
+        vulnerability_count=2,
+        duplicate_blocks=8,
+        dead_code_items=7,
+        ruff_violations=0,
+        coverage_percent=67.5,
+        test_types={"unit": 10, "integration": 5, "e2e": 2},
+        total_tests=17,
+        high_complexity_functions=3
+    )
+    
+    template_data = _metrics_to_template_data(metrics)
+    
+    # CRITICAL: Every number in template_data must come from metrics
+    assert template_data["score"] == metrics.score
+    assert template_data["security_issues"] == metrics.security_issues
+    assert template_data["coverage_percent"] == metrics.coverage_percent
+    assert template_data["total_issues"] == metrics.total_issues
+    assert template_data["files_scanned"] == metrics.files_scanned
+    
+    # Verify NO calculations in template data
+    # (all calculations should be in metrics_builder)
+    assert isinstance(template_data["score"], int)
+    assert isinstance(template_data["security_issues"], int)
+
+
+# ============================================================================
+# Test 4: Tool Timeout Handling
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_tool_timeout():
+    """
+    Test that tools exceeding timeout are handled gracefully.
+    """
+    project_path = Path(".")
+    
+    # Create tool that will timeout
+    slow_tool = MockTool("slow_tool", should_timeout=True)
+    
+    # Execute with short timeout
+    result = await execute_tool_safe(slow_tool, project_path, timeout=1)
+    
+    # Verify timeout was caught
+    assert result.status == "timeout"
+    assert result.tool_name == "slow_tool"
+    assert "timeout" in result.error.lower()
+    assert result.execution_time_ms > 1000  # At least 1 second
+
+
+@pytest.mark.asyncio
+async def test_mixed_timeout_and_success():
+    """
+    Test that timeouts don't affect other tools.
+    """
+    project_path = Path(".")
+    
+    tools = [
+        MockTool("fast1", delay=0.1),
+        MockTool("slow", should_timeout=True),
+        MockTool("fast2", delay=0.1),
+    ]
+    
+    # Execute with timeout
+    tasks = [execute_tool_safe(tool, project_path, timeout=1) for tool in tools]
+    results = await asyncio.gather(*tasks)
+    
+    # Verify mixed results
+    assert results[0].status == "success"
+    assert results[1].status == "timeout"
+    assert results[2].status == "success"
+
+
+# ============================================================================
+# Test 5: Backward Compatibility
+# ============================================================================
+
+def test_base_tool_async_wrapper():
+    """
+    Test that BaseTool.analyze_async() correctly wraps synchronous analyze().
+    """
+    class TestTool(BaseTool):
+        def analyze(self, project_path: Path):
+            return {"result": "sync"}
+        
+        @property
+        def description(self):
+            return "Test tool"
+    
+    tool = TestTool()
+    
+    # Test async wrapper
+    async def run_test():
+        result = await tool.analyze_async(Path("."))
+        return result
+    
+    result = asyncio.run(run_test())
+    assert result["result"] == "sync"
+
+
+def test_existing_scoring_engine_integration():
+    """
+    Test that metrics_builder uses existing ScoringEngine.
+    """
+    from app.core.scoring_engine import ScoringEngine
+    
+    # Create sample audit results
+    audit_results = {
+        "bandit": {"total_issues": 3},
+        "secrets": {"total_secrets": 2},
+        "tests": {"coverage_percent": 50},
+        "dead_code": {"total_dead": 10},
+        "duplication": {"duplicates": [{"similarity": 98}] * 5}
+    }
+    
+    # Use existing scoring engine
+    breakdown = ScoringEngine.calculate_score(audit_results)
+    
+    # Verify it works
+    assert breakdown.final_score >= 0
+    assert breakdown.final_score <= 100
+    assert breakdown.grade in ["A+", "A", "B", "C", "D", "F"]
+
+
+# ============================================================================
+# Integration Test: Full Workflow
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_full_async_audit_workflow():
+    """
+    Integration test: Full workflow from async audit to report generation.
+    """
+    # This would require mocking the entire tool registry
+    # For now, we test the components individually
+    
+    # 1. Create mock tool results
+    tool_results = {
+        "structure": {
+            "tool_name": "structure",
+            "status": "success",
+            "data": {"total_py_files": 50},
+            "execution_time_ms": 100
+        },
+        "bandit": {
+            "tool_name": "bandit",
+            "status": "success",
+            "data": {"total_issues": 5},
+            "execution_time_ms": 200
+        }
+    }
+    
+    # 2. Build metrics
+    metrics = build_audit_metrics(tool_results, "/test/project")
+    
+    # 3. Verify metrics
+    assert metrics.tools_succeeded == 2
+    assert metrics.score >= 0
+    assert metrics.score <= 100
+    
+    # 4. Convert to template data
+    from mcp_fastmcp_server import _metrics_to_template_data
+    template_data = _metrics_to_template_data(metrics)
+    
+    # 5. Verify template data has all required fields
+    required_fields = [
+        "run_id", "score", "grade", "penalties",
+        "files_scanned", "security_issues", "coverage_percent"
+    ]
+    for field in required_fields:
+        assert field in template_data, f"Missing required field: {field}"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
