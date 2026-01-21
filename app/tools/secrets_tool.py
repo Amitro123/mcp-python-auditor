@@ -62,7 +62,10 @@ class SecretsTool(BaseTool):
                 "--exclude-files", "__pycache__",
                 "--exclude-files", ".git",
                 "--exclude-files", "htmlcov",
-                "--exclude-files", ".pytest_cache"
+                "--exclude-files", ".pytest_cache",
+                "--exclude-files", "frontend/test-results",
+                "--exclude-files", "playwright-report",
+                "--exclude-files", "test-results"
             ])
 
         try:
@@ -81,7 +84,8 @@ class SecretsTool(BaseTool):
                 # Safety filter - skip unwanted paths
                 if any(x in file_path for x in [
                     "node_modules", "external_libs", "tests", 
-                    ".min.js", ".map", ".venv", "venv", "__pycache__"
+                    ".min.js", ".map", ".venv", "venv", "__pycache__",
+                    "frontend/test-results", "playwright-report"
                 ]):
                     continue
                 

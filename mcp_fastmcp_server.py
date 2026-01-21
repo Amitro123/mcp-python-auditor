@@ -155,7 +155,16 @@ def run_secrets(path: Path) -> dict:
     try:
         target_path = Path(path).resolve()
         # Use cwd=. pattern
-        cmd = ["detect-secrets", "scan", "."]
+        cmd = [
+            "detect-secrets", "scan", ".",
+            "--exclude-files", "node_modules",
+            "--exclude-files", "venv",
+            "--exclude-files", ".venv",
+            "--exclude-files", ".git",
+            "--exclude-files", "__pycache__",
+            "--exclude-files", "frontend/test-results",
+            "--exclude-files", "playwright-report"
+        ]
         try:
             result = subprocess.run(
                 cmd, 
@@ -204,7 +213,11 @@ def run_ruff(path: Path) -> dict:
     try:
         # Use cwd pattern for Windows compatibility
         target_path = Path(path).resolve()
-        cmd = [sys.executable, "-m", "ruff", "check", ".", "--output-format", "json"]
+        cmd = [
+            sys.executable, "-m", "ruff", "check", ".",
+            "--output-format", "json",
+            "--exclude", "node_modules,venv,.venv,.git,__pycache__,frontend/test-results"
+        ]
         try:
             result = subprocess.run(
                 cmd, 
@@ -540,6 +553,11 @@ def run_tests_coverage(path: Path) -> dict:
             "--cov=.",
             "--cov-report=term-missing",
             "-q",  # Quiet mode
+            "--ignore=node_modules",
+            "--ignore=venv",
+            "--ignore=.venv",
+            "--ignore=.git",
+            "--ignore=frontend/test-results",
             "."
         ]
         

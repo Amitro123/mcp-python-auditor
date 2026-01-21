@@ -152,7 +152,12 @@ class TestsTool(BaseTool):
         """
         try:
             python_cmd = str(venv_python)
-            cmd = [python_cmd, '-m', 'pytest', '--collect-only', '-q', '--color=no']
+            cmd = [
+                python_cmd, '-m', 'pytest', '--collect-only', '-q', '--color=no',
+                '--ignore=node_modules', '--ignore=venv', '--ignore=.venv',
+                '--ignore=dist', '--ignore=build', '--ignore=.git',
+                '--ignore=frontend', '--ignore=playwright-report', '--ignore=test-results'
+            ]
             
             logger.info(f"Collecting tests with command: {' '.join(cmd)}")
             
@@ -232,7 +237,10 @@ class TestsTool(BaseTool):
                 '--cov=.', 
                 '--cov-report=term-missing', 
                 '-q',
-                '--color=no'
+                '--color=no',
+                '--ignore=node_modules', '--ignore=venv', '--ignore=.venv',
+                '--ignore=dist', '--ignore=build', '--ignore=.git',
+                '--ignore=frontend', '--ignore=playwright-report', '--ignore=test-results'
             ]
             
             logger.info(f"Running coverage command: {' '.join(cmd)}")

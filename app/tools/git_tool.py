@@ -40,8 +40,11 @@ class GitTool(BaseTool):
                     "message": "Not a git repository"
                 }
             
-            # Get diff stats
-            diff_stat = self._get_diff_stat(project_path)
+            # Check for uncommitted changes (Fastest check first)
+            has_changes = self._has_uncommitted_changes(project_path)
+
+            # Get diff stats only if changes exist
+            diff_stat = self._get_diff_stat(project_path) if has_changes else ""
             
             # Get last commit details
             last_commit = self._get_last_commit(project_path)
@@ -52,9 +55,6 @@ class GitTool(BaseTool):
             
             # Get branch info
             branch = self._get_current_branch(project_path)
-            
-            # Check for uncommitted changes
-            has_changes = self._has_uncommitted_changes(project_path)
             
             return {
                 "has_git": True,
