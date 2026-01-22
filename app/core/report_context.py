@@ -484,7 +484,7 @@ def _normalize_deadcode(raw_results: Dict[str, Any]) -> Dict[str, Any]:
 
     dead_functions = data.get('dead_functions', [])
     unused_imports = data.get('unused_imports', [])
-    unused_vars = data.get('unused_variables', []) or data.get('dead_variables', [])
+    unused_vars = data.get('unused_variables', [])
 
     total = len(dead_functions) + len(unused_imports) + len(unused_vars)
 
