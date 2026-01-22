@@ -12,6 +12,28 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Constants for scoring and grading
+SCORE_A = 90
+SCORE_B = 80
+SCORE_C = 70
+SCORE_D = 60
+
+# Penalty Constants
+MAX_SECURITY_PENALTY = 50
+SECURITY_ISSUE_PENALTY = 5
+SECRET_FOUND_PENALTY = 10
+
+MAX_QUALITY_PENALTY = 20
+DEAD_CODE_DIVISOR = 2
+
+# Testing Penalty Constants
+PENALTY_TESTING_VERY_LOW = 30
+PENALTY_TESTING_LOW = 20
+PENALTY_TESTING_MODERATE = 10
+COVERAGE_THRESHOLD_LOW = 50
+COVERAGE_THRESHOLD_MODERATE = 70
+COVERAGE_THRESHOLD_GOOD = 80
+
 
 def build_report_context(
     raw_results: dict[str, Any],
@@ -102,13 +124,13 @@ def build_report_context(
 
 def _calculate_grade(score: int) -> str:
     """Calculate letter grade from numeric score."""
-    if score >= 90:
+    if score >= SCORE_A:
         return "A"
-    if score >= 80:
+    if score >= SCORE_B:
         return "B"
-    if score >= 70:
+    if score >= SCORE_C:
         return "C"
-    if score >= 60:
+    if score >= SCORE_D:
         return "D"
     return "F"
 
@@ -132,18 +154,21 @@ def _calculate_penalties(raw_results: dict[str, Any]) -> dict[str, int]:
 
     secrets_found = len(secrets.get("secrets", []))
 
-    penalties["security"] = min(50, (security_issues * 5) + (secrets_found * 10))
+    penalties["security"] = min(
+        MAX_SECURITY_PENALTY,
+        (security_issues * SECURITY_ISSUE_PENALTY) + (secrets_found * SECRET_FOUND_PENALTY)
+    )
 
     # Testing penalty
     tests = raw_results.get("tests", {})
     coverage = tests.get("coverage_percent", 0)
 
-    if coverage < 50:
-        penalties["testing"] = 30
-    elif coverage < 70:
-        penalties["testing"] = 20
-    elif coverage < 80:
-        penalties["testing"] = 10
+    if coverage < COVERAGE_THRESHOLD_LOW:
+        penalties["testing"] = PENALTY_TESTING_VERY_LOW
+    elif coverage < COVERAGE_THRESHOLD_MODERATE:
+        penalties["testing"] = PENALTY_TESTING_LOW
+    elif coverage < COVERAGE_THRESHOLD_GOOD:
+        penalties["testing"] = PENALTY_TESTING_MODERATE
     else:
         penalties["testing"] = 0
 
@@ -154,7 +179,7 @@ def _calculate_penalties(raw_results: dict[str, Any]) -> dict[str, int]:
     unused_vars = len(deadcode.get("unused_variables", []))
     total_dead = dead_functions + unused_imports + unused_vars
 
-    penalties["quality"] = min(20, total_dead // 2)
+    penalties["quality"] = min(MAX_QUALITY_PENALTY, total_dead // DEAD_CODE_DIVISOR)
 
     return penalties
 
@@ -194,19 +219,19 @@ def _get_coverage_severity(raw_results: dict[str, Any]) -> dict[str, str]:
     tests = raw_results.get("tests", {})
     coverage = tests.get("coverage_percent", 0)
 
-    if coverage >= 80:
+    if coverage >= COVERAGE_THRESHOLD_GOOD:
         return {
             "label": "🟢 Excellent",
             "description": f"Excellent coverage ({coverage}%)",
             "recommendation": "Maintain current test coverage"
         }
-    if coverage >= 70:
+    if coverage >= COVERAGE_THRESHOLD_MODERATE:
         return {
             "label": "🟡 Good",
             "description": f"Good coverage ({coverage}%)",
             "recommendation": "Continue improving to 80%+"
         }
-    if coverage >= 50:
+    if coverage >= COVERAGE_THRESHOLD_LOW:
         return {
             "label": "🟠 Moderate",
             "description": f"Acceptable coverage ({coverage}%)",
@@ -325,6 +350,24 @@ def _normalize_secrets(raw_results: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _generate_test_warning(data: dict[str, Any], total_files: int, total_executed: int) -> str:
+    """Generate warning message for test execution anomalies."""
+    warning = data.get("warning", "")
+
+    # Validation: Test files found but no results
+    if total_files > 0 and total_executed == 0:
+        msg = "⚠️ Test files found but no tests executed."
+        warning = f"{warning} {msg}" if warning else msg
+
+    # Validation: Coverage reported but no test files
+    coverage_percent = data.get("coverage_percent", 0)
+    if coverage_percent > 0 and total_files == 0:
+        msg = "⚠️ Coverage reported but no test files detected."
+        warning = f"{warning} {msg}" if warning else msg
+
+    return warning
+
+
 def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize test execution data."""
     data = raw_results.get("tests", {})
@@ -342,18 +385,7 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
         total_executed < total_files
     )
 
-    warning = data.get("warning", "")
-
-    # Validation: Test files found but no results
-    if total_files > 0 and total_executed == 0:
-        msg = "⚠️ Test files found but no tests executed."
-        warning = f"{warning} {msg}" if warning else msg
-
-    # Validation: Coverage reported but no test files
-    coverage_percent = data.get("coverage_percent", 0)
-    if coverage_percent > 0 and total_files == 0:
-        msg = "⚠️ Coverage reported but no test files detected."
-        warning = f"{warning} {msg}" if warning else msg
+    warning = _generate_test_warning(data, total_files, total_executed)
 
     # FIXED: Build test_breakdown with proper structure
     test_breakdown = {
@@ -365,7 +397,7 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "available": bool(data),
-        "coverage_percent": coverage_percent,
+        "coverage_percent": data.get("coverage_percent", 0),
         "coverage_report": data.get("coverage_report", ""),
         "total_test_files": total_files,
         "tests_passed": tests_passed,
