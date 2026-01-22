@@ -2,7 +2,7 @@
 
 **Generated**: {{ timestamp }}  
 **Repository**: {{ repo_name }}  
-**Duration**: {{ duration }}
+**Duration**: {{ duration if duration else "N/A" }}
 
 ---
 
@@ -25,15 +25,19 @@
 **Secrets Detected**: {{ secrets.total_secrets }}
 
 {% if security.total_issues > 0 %}
-### Security Issues
+### 🛡️ Security Issues
+
 {% for issue in security.issues[:5] %}
 - **{{ issue.severity }}**: {{ issue.message }} (`{{ issue.file }}:{{ issue.line }}`)
 {% endfor %}
+
 {% if security.total_issues > 5 %}
 ... and {{ security.total_issues - 5 }} more issues
 {% endif %}
+
 {% else %}
-✅ No security issues detected
+✅ No security issues detected by Bandit
+
 {% endif %}
 
 ---
@@ -55,6 +59,49 @@
 ⚠️ **Warning**: {{ tests.warning }}
 {% endif %}
 
+{% if tests.tests_passed > 0 or tests.tests_failed > 0 %}
+### Tests & Coverage Details
+
+**Test Results**:
+- ✅ Passed: {{ tests.tests_passed }}
+- ❌ Failed: {{ tests.tests_failed }}
+- ⏭️ Skipped: {{ tests.tests_skipped }}
+
+{% if tests.coverage_report %}
+**Coverage Report**:
+```
+{{ tests.coverage_report }}
+```
+{% endif %}
+
+{% if tests.test_list and tests.test_list|length > 0 %}
+**Test Files Scanned** ({{ tests.test_list|length }} tests):
+{% for test in tests.test_list[:10] %}
+- {{ test }}
+{% endfor %}
+{% if tests.test_list|length > 10 %}
+... and {{ tests.test_list|length - 10 }} more tests
+{% endif %}
+{% endif %}
+{% endif %}
+
+---
+
+## 📂 Project Structure
+
+{% if structure.total_py_files %}
+**Python Files**: {{ structure.total_py_files }}  
+**Total Lines**: {{ structure.total_lines }}  
+**Top Directories**: {{ structure.top_directories|join(', ') }}
+
+### Directory Tree
+```
+{{ structure.directory_tree }}
+```
+{% else %}
+No structure information available
+{% endif %}
+
 ---
 
 ## 🧹 Code Quality
@@ -71,6 +118,7 @@
 {% for issue in quality.issues[:10] %}
 - {{ issue.severity }}: {{ issue.message }} (`{{ issue.file }}:{{ issue.line }}`)
 {% endfor %}
+
 {% else %}
 ✅ No linting issues detected
 {% endif %}
@@ -87,6 +135,7 @@
 {% for item in (deadcode.unused_vars + deadcode.unused_imports)[:5] %}
 - `{{ item.name }}` in {{ item.file }}:{{ item.line }}
 {% endfor %}
+
 {% else %}
 ✅ No dead code detected
 {% endif %}
@@ -94,15 +143,68 @@
 ### Code Duplication
 {{ duplication.total_duplicates }} similar code blocks found
 
+{% if duplication.total_duplicates > 0 %}
+
 {% if duplication.total_duplicates > 10 %}
 ⚠️ High duplication detected. Consider refactoring common patterns.
+{% endif %}
 
-**Most Duplicated** (similarity > 95%):
+#### 🎭 DUPLICATES
+
+**Most Duplicated Functions** (similarity > 80%):
 {% for dup in duplication.duplicates %}
-{% if dup.similarity > 95 %}
+{% if dup.similarity > 80 %}
 - `{{ dup.function_name }}` ({{ dup.similarity|round(1) }}% similar) - {{ dup.count }} instances
+  - Locations: {{ dup.locations|join(', ') }}
 {% endif %}
 {% endfor %}
+{% else %}
+✅ No significant code duplication detected
+{% endif %}
+
+---
+
+## 📊 Detailed Findings
+
+### Architecture Overview
+{% if architecture.total_files %}
+**Total Files Analyzed**: {{ architecture.total_files }}  
+**Total Dependencies**: {{ architecture.total_dependencies }}
+
+#### Dependency Graph
+```mermaid
+{{ architecture.mermaid_graph }}
+```
+{% else %}
+Architecture analysis not available
+{% endif %}
+
+### Efficiency Analysis
+{% if efficiency.total_high_complexity > 0 %}
+**High Complexity Functions**: {{ efficiency.total_high_complexity }}
+
+{% for func in efficiency.high_complexity_functions[:5] %}
+- `{{ func.name }}` in {{ func.file }} (complexity: {{ func.complexity }})
+{% endfor %}
+{% else %}
+✅ No high-complexity functions detected (all under threshold)
+{% endif %}
+
+### Cleanup Recommendations
+{% if cleanup.total_size_mb > 0 %}
+**Cleanup Available**: {{ cleanup.total_size_mb }}MB
+
+**Targets**:
+{% for target, count in cleanup.cleanup_targets.items() %}
+- {{ target }}: {{ count }} directories
+{% endfor %}
+
+**Items**:
+{% for item in cleanup.cleanup_items[:10] %}
+- {{ item }}
+{% endfor %}
+{% else %}
+✅ No cleanup needed
 {% endif %}
 
 ---
@@ -136,9 +238,13 @@
 ## 🔧 Tools Executed
 
 {% for tool in tools_summary %}
-- **{{ tool.name }}**: {{ tool.status }}
+- **{{ tool.name }}**: {{ tool.status }} ({{ tool.duration_s }}s)
 {% endfor %}
 
 ---
 
 *This report uses pre-calculated scores based on the algorithm in README.md. All numeric values are deterministic and not subject to interpretation.*
+
+## 🛡️ Report Integrity Check
+**Status:** {% if all_sections_present %}✅ Complete{% else %}⚠️ Incomplete{% endif %}
+{% if missing_sections %}Missing sections: {{ missing_sections|join(', ') }}{% endif %}

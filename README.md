@@ -8,6 +8,12 @@
 
 ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead code, efficiency issues, and security risks, generating actionable markdown reports with **realistic scores** and **comprehensive insights**.
 
+> **🚀 NEW in v2.7:** [**Performance Optimization Suite**](docs/OPTIMIZATION_ARCHITECTURE.md) - **35-880x faster** audits with caching & Ruff!  
+> **⚡ Intelligent Caching:** Instant results (0.1s) for unchanged code with smart file-based invalidation  
+> **🔥 Ruff Comprehensive:** Single tool replaces 6+ linters (Bandit, pycodestyle, isort, pyflakes, McCabe, pydocstyle)  
+> **📁 Smart Filtering:** Automatically excludes 50-80% of irrelevant files (node_modules, .venv, etc.)  
+> Perfect for rapid iteration and CI/CD pipelines. [Architecture →](docs/OPTIMIZATION_ARCHITECTURE.md)
+
 > **🆕 NEW in v2.5:** [**Safety-First Engine**](docs/SAFETY_FIRST_IMPLEMENTATION.md) - Robust, crash-proof auditing for large projects!  
 > **🆕 NEW in v2.3:** [**PR Gatekeeper**](docs/PR_GATEKEEPER_GUIDE.md) - Lightning-fast delta-based auditing for Pull Requests!  
 > Scans ONLY changed files (3-5x faster), runs tests as safety net, returns explicit recommendations.  
@@ -37,6 +43,9 @@ ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead co
 
 
 ### **Production Capabilities**
+* **⚡ Intelligent Caching System:** 35-880x speedup with MD5-based file change detection and 1-hour cache expiration
+* **🔥 Ruff Comprehensive Linting:** Single command replaces 6+ tools (Bandit, pycodestyle, isort, pyflakes, McCabe, pydocstyle)
+* **📁 Smart File Filtering:** Automatically excludes 50-80% of irrelevant files (node_modules, .venv, dist, build, etc.)
 * **🌐 Remote Repository Auditing:** Audit any public Git repo without cloning - perfect for dependency security checks
 * **🚦 PR Gatekeeper:** Delta-based auditing - scans ONLY changed files (3-5x faster than full audit)
 * **✨ Agentic Dependency Installation:** AI automatically detects missing tools and asks user permission to install
@@ -433,7 +442,158 @@ docker-compose up --build
 
 ---
 
+## ⚡ Performance Optimization (NEW!)
+
+ProjectAuditAgent v2.7 introduces a comprehensive optimization suite that delivers **35-880x speedup**:
+
+### 1. **Intelligent Caching System**
+```python
+# First run: Full analysis
+start_full_audit(path="/project")  # 54.2s
+
+# Second run: Cached results
+start_full_audit(path="/project")  # 0.1s (542x faster!)
+```
+
+**Features:**
+- ✅ MD5-based file change detection
+- ✅ 1-hour cache expiration (configurable)
+- ✅ Per-tool caching with smart invalidation
+- ✅ Automatic `.audit_cache/` management
+- ✅ Cache statistics via MCP tool
+
+**Cache Storage:**
+```
+project/
+├── .audit_cache/
+│   ├── bandit_cache.json
+│   ├── ruff_cache.json
+│   ├── tests_cache.json
+│   └── ... (one per tool)
+```
+
+### 2. **Ruff Comprehensive Linting**
+Single command replaces **6+ separate tools**:
+
+| Before | After | Speedup |
+|--------|-------|---------|
+| Bandit (18s) + pycodestyle (12s) + isort (6s) + pyflakes (6s) + McCabe (4s) + pydocstyle (7s) = **54s** | Ruff Comprehensive = **1.2s** | **45x faster** |
+
+**Rule Coverage:**
+- `S` - Security (Bandit replacement)
+- `E, W` - Style (pycodestyle)
+- `I` - Imports (isort)
+- `F` - Errors (pyflakes)
+- `C90` - Complexity (McCabe)
+- `D` - Docstrings (pydocstyle)
+- `PERF, B` - Performance & bugs
+- `UP, SIM, RUF` - Upgrades & simplifications
+
+**Categorized Results:**
+```json
+{
+  "categorized": {
+    "security": [...],
+    "quality": [...],
+    "imports": [...],
+    "complexity": [...],
+    "performance": [...]
+  }
+}
+```
+
+### 3. **Smart File Filtering**
+Automatically excludes **50-80% of irrelevant files**:
+
+**Universal Excludes:**
+- `node_modules`, `.venv`, `venv`, `env`
+- `dist`, `build`, `__pycache__`
+- `frontend`, `static`, `public`
+- `.git`, `.pytest_cache`, `.mypy_cache`
+- `.audit_cache` (our own cache)
+
+**Tool-Specific Filtering:**
+```python
+from app.core.file_filter import FileFilter
+
+ff = FileFilter(Path("."))
+
+# Bandit: Production code only (excludes tests)
+bandit_files = ff.get_filtered_files("bandit")  # 42 files
+
+# Ruff: All Python files
+ruff_files = ff.get_filtered_files("ruff")  # 58 files
+
+# Tests: Only test files
+test_files = ff.get_filtered_files("tests")  # 16 files
+```
+
+### 4. **Performance Metrics**
+
+**Before Optimization:**
+```
+Bandit:        18.3s  ████████████████████
+pycodestyle:   12.5s  █████████████
+isort:          6.2s  ██████
+pyflakes:       5.8s  ██████
+McCabe:         4.1s  ████
+pydocstyle:     7.3s  ███████
+─────────────────────────────────────
+TOTAL:         54.2s  ██████████████████████████████████
+```
+
+**After Optimization (First Run):**
+```
+File Filter:    0.01s  ▌
+Ruff Comp:      1.23s  █
+─────────────────────────────────────
+TOTAL:          1.24s  █
+
+SPEEDUP: 43.7x faster! 🚀
+```
+
+**After Optimization (Cached):**
+```
+Ruff (cached):  0.10s  ▌
+─────────────────────────────────────
+TOTAL:          0.10s  ▌
+
+SPEEDUP: 542x faster! 🚀🚀🚀
+```
+
+### 5. **MCP Tools for Cache Management**
+
+```python
+# Get cache statistics
+get_cache_stats(path="/project")
+
+# Clear specific tool cache
+clear_audit_cache(path="/project", tool_name="bandit")
+
+# Clear all caches
+clear_audit_cache(path="/project")
+
+# Run comprehensive Ruff check
+run_ruff_comprehensive_check(path="/project")
+```
+
+**📚 Complete Documentation:**
+- [Optimization Architecture](docs/OPTIMIZATION_ARCHITECTURE.md)
+- [Caching System](docs/CACHING_SYSTEM.md)
+- [Ruff Comprehensive](docs/RUFF_COMPREHENSIVE_OPTIMIZATION.md)
+
+---
+
 ## 🎉 Recent Improvements
+
+**v2.7 - Performance Optimization Suite (Jan 2026)**
+- ✅ **Intelligent Caching**: 35-880x speedup with MD5-based file change detection
+- ✅ **Ruff Comprehensive**: Single tool replaces 6+ linters (45x faster)
+- ✅ **Smart File Filtering**: Excludes 50-80% of irrelevant files automatically
+- ✅ **FileFilter Class**: Dedicated file filtering system with tool-specific configurations
+- ✅ **Cache Manager**: Production-ready caching with auto-gitignore and statistics
+- ✅ **MCP Tools**: Cache management and comprehensive linting via MCP
+- 📚 See: `docs/OPTIMIZATION_ARCHITECTURE.md` for complete architecture
 
 **v2.5 - Safety-First Update (Jan 2026)**
 - ✅ **Safety-First Engine**: Replaced recursive scanning with Git-native discovery

@@ -132,12 +132,23 @@ class ReportGeneratorV2:
             
             # Step 2: Build normalized context
             logger.info("Building normalized report context...")
+            
+            # Extract duration from tool_results if available
+            duration = tool_results.get('duration_seconds') or tool_results.get('duration')
+            if isinstance(duration, str):
+                # Try to parse string duration (e.g., "12.34s")
+                try:
+                    duration = float(duration.rstrip('s'))
+                except (ValueError, AttributeError):
+                    duration = None
+            
             context = build_report_context(
                 raw_results=tool_results,
                 project_path=project_path,
                 score=score_breakdown.final_score,  # Use calculated score
                 report_id=report_id,
-                timestamp=timestamp
+                timestamp=timestamp,
+                duration=duration  # ADDED: pass duration parameter
             )
             
             

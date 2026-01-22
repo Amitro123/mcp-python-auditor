@@ -113,3 +113,6 @@ full_out.txt
 test_output.txt
 test_remote_output.txt
 SELF_AUDIT_REPORT.md
+
+# Audit cache
+.audit_cache/

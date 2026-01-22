@@ -16,7 +16,7 @@ import datetime
 import asyncio
 import uuid
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 # Import our internal tools
 from app.tools.structure_tool import StructureTool
@@ -29,6 +29,8 @@ from app.tools.duplication_tool import DuplicationTool
 from app.tools.gitignore_tool import GitignoreTool
 from app.tools.git_tool import GitTool
 from app.tools.typing_tool import TypingTool
+from app.core.cache_manager import CacheManager
+# Trigger reload for report_context changes
 from app.core.report_generator_v2 import ReportGeneratorV2
 
 # Create the MCP Server
@@ -127,6 +129,208 @@ The following tools are required to run the audit but were not found:
     return [] # Return empty list to maintain compatibility with report generator
 
 
+# ============================================================
+# SMART FILE FILTERING - Skip Irrelevant Files
+# ============================================================
+
+def get_relevant_files(project_path: Path, tool_name: str) -> List[Path]:
+    """
+    Get only relevant files for each tool.
+    Massively speeds up analysis by skipping:
+    - node_modules, .venv, venv, .git
+    - frontend/, dist/, build/
+    - test files (for some tools)
+    - generated files
+    """
+    
+    # Universal excludes
+    universal_excludes = {
+        'node_modules', '.venv', 'venv', 'env', '.git', 
+        'dist', 'build', '__pycache__', '.pytest_cache',
+        '.mypy_cache', '.ruff_cache', '.tox',
+        'frontend', 'static', 'public', '.audit_cache'
+    }
+    
+    # Tool-specific patterns
+    tool_patterns = {
+        'bandit': {
+            'include': ['**/*.py'],
+            'exclude': ['**/test_*.py', '**/*_test.py', '**/conftest.py'],
+            'reason': 'Security checks on production code only'
+        },
+        'ruff': {
+            'include': ['**/*.py'],
+            'exclude': [],
+            'reason': 'Check all Python files'
+        },
+        'tests': {
+            'include': ['**/test_*.py', '**/*_test.py'],
+            'exclude': [],
+            'reason': 'Only test files'
+        },
+        'pip-audit': {
+            'include': ['requirements.txt', 'pyproject.toml', 'setup.py'],
+            'exclude': [],
+            'reason': 'Only dependency files'
+        },
+        'deadcode': {
+            'include': ['**/*.py'],
+            'exclude': ['**/test_*.py', '**/*_test.py'],
+            'reason': 'Production code only'
+        }
+    }
+    
+    config = tool_patterns.get(tool_name, {'include': ['**/*.py'], 'exclude': []})
+    
+    files = []
+    
+    for pattern in config['include']:
+        for file in project_path.rglob(pattern):
+            # Skip if in excluded directory
+            if any(exc in file.parts for exc in universal_excludes):
+                continue
+            
+            # Skip if matches exclude pattern
+            if any(file.match(exc) for exc in config['exclude']):
+                continue
+            
+            files.append(file)
+    
+    return files
+
+
+# ============================================================
+# COMPREHENSIVE RUFF - Replaces Multiple Tools
+# ============================================================
+
+def run_ruff_comprehensive(path: Path) -> dict:
+    """
+    Run Ruff with all rule categories to replace multiple tools.
+    
+    Replaces:
+    - Bandit (security) → ruff --select S
+    - pycodestyle → ruff --select E,W
+    - isort → ruff --select I
+    - pyflakes → ruff --select F
+    - McCabe complexity → ruff --select C90
+    - pydocstyle → ruff --select D
+    
+    Returns results categorized by type for backward compatibility.
+    """
+    
+    # Rule categories to enable
+    # Full list: https://docs.astral.sh/ruff/rules/
+    rule_sets = {
+        'security': 'S',      # Bandit rules
+        'errors': 'E',        # pycodestyle errors
+        'warnings': 'W',      # pycodestyle warnings
+        'pyflakes': 'F',      # Unused imports, undefined names
+        'complexity': 'C90',  # McCabe complexity
+        'imports': 'I',       # Import sorting
+        'docstrings': 'D',    # pydocstyle
+        'performance': 'PERF', # Performance anti-patterns
+        'bugbear': 'B',       # Common bugs
+    }
+    
+    # Combine all rules
+    all_rules = ','.join(rule_sets.values())
+    
+    cmd = [
+        sys.executable,
+        '-m', 'ruff',
+        'check',
+        str(path),
+        '--select', all_rules,
+        '--output-format', 'json',
+        '--exit-zero',  # Don't fail on issues
+    ]
+    
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,  # Ruff is FAST - 10s is plenty
+            cwd=path,
+            stdin=subprocess.DEVNULL
+        )
+        
+        issues = json.loads(result.stdout) if result.stdout else []
+        
+        # Categorize issues by type
+        categorized = {
+            'security': [],      # S rules (Bandit replacement)
+            'quality': [],       # E, W rules
+            'imports': [],       # I, F401 rules
+            'complexity': [],    # C90 rules
+            'docstrings': [],    # D rules
+            'performance': [],   # PERF, B rules
+            'other': []
+        }
+        
+        for issue in issues:
+            code = issue.get('code', '')
+            
+            if code.startswith('S'):
+                categorized['security'].append(issue)
+            elif code.startswith(('E', 'W')):
+                categorized['quality'].append(issue)
+            elif code.startswith('I') or code == 'F401':
+                categorized['imports'].append(issue)
+            elif code.startswith('C90'):
+                categorized['complexity'].append(issue)
+            elif code.startswith('D'):
+                categorized['docstrings'].append(issue)
+            elif code.startswith(('PERF', 'B')):
+                categorized['performance'].append(issue)
+            else:
+                categorized['other'].append(issue)
+        
+        total_issues = len(issues)
+        files_analyzed = len(set(i.get('filename') for i in issues)) if issues else 0
+        
+        return {
+            'tool': 'ruff_comprehensive',
+            'status': 'issues_found' if total_issues > 0 else 'clean',
+            'total_issues': total_issues,
+            'categorized': categorized,
+            'issues': issues,  # Raw issues for compatibility
+            'files_analyzed': files_analyzed,
+            'summary': {
+                'security': len(categorized['security']),
+                'quality': len(categorized['quality']),
+                'imports': len(categorized['imports']),
+                'complexity': len(categorized['complexity']),
+                'performance': len(categorized['performance']),
+                'docstrings': len(categorized['docstrings']),
+            },
+            # Backward compatibility fields
+            'code_security': {
+                'issues': categorized['security'],
+                'files_scanned': files_analyzed
+            }
+        }
+        
+    except subprocess.TimeoutExpired:
+        return {
+            'tool': 'ruff_comprehensive',
+            'status': 'error',
+            'error': 'Ruff timed out (should never happen!)'
+        }
+    except json.JSONDecodeError as e:
+        return {
+            'tool': 'ruff_comprehensive',
+            'status': 'error',
+            'error': f'Failed to parse Ruff JSON output: {str(e)}'
+        }
+    except Exception as e:
+        return {
+            'tool': 'ruff_comprehensive',
+            'status': 'error',
+            'error': f'Ruff failed: {str(e)}'
+        }
+
+
 def run_bandit(path: Path) -> dict:
     """Run real Bandit security analysis (using pyproject.toml config)."""
     import subprocess
@@ -167,13 +371,21 @@ def run_bandit(path: Path) -> dict:
         # Filter logic is now handled by Bandit config (B101 etc skipped), 
         # but we can add extra safety here if needed.
         
+        # Extract files scanned from metrics
+        metrics = bandit_data.get("metrics", {})
+        files_scanned = metrics.get("_totals", {}).get("loc", 0) if metrics else 0
+        
+        # If metrics doesn't have totals, count unique files from results
+        if files_scanned == 0 and issues:
+            files_scanned = len(set(issue.get("filename", "") for issue in issues))
+        
         return {
             "tool": "bandit",
             "status": "issues_found" if issues else "clean",
             "total_issues": len(issues),
             "issues": issues,
-            "metrics": bandit_data.get("metrics", {}),
-            "files_scanned": len(bandit_data.get("metrics", {}))
+            "metrics": metrics,
+            "files_scanned": files_scanned
         }
         
     except Exception as e:
@@ -1153,6 +1365,11 @@ async def run_audit_background(job_id: str, path: str):
     target = Path(path).resolve()
     
     try:
+        # Initialize cache manager
+        from app.core.cache_manager import CacheManager
+        cache_mgr = CacheManager(str(target), max_age_hours=1)
+        log(f"[Job {job_id}] Cache manager initialized")
+        
         # Helper for logging
         async def run_with_log(name: str, coro):
             log(f"[Job {job_id}] ⏳ Starting {name}...")
@@ -1165,25 +1382,129 @@ async def run_audit_background(job_id: str, path: str):
             except Exception as e:
                 log(f"[Job {job_id}] ❌ Failed {name}: {e}")
                 return {"tool": name, "status": "error", "error": str(e)}
+        
+        # Cached wrapper functions
+        async def run_bandit_cached():
+            cached = cache_mgr.get_cached_result("bandit", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_bandit, target)
+            cache_mgr.save_result("bandit", result, ["**/*.py"])
+            return result
+        
+        async def run_secrets_cached():
+            cached = cache_mgr.get_cached_result("secrets", ["**/*"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_secrets, target)
+            cache_mgr.save_result("secrets", result, ["**/*"])
+            return result
+        
+        async def run_ruff_cached():
+            cached = cache_mgr.get_cached_result("ruff", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_ruff, target)
+            cache_mgr.save_result("ruff", result, ["**/*.py"])
+            return result
+        
+        async def run_ruff_comprehensive_cached():
+            """Use comprehensive Ruff to replace multiple tools (Bandit, pycodestyle, etc.)."""
+            cached = cache_mgr.get_cached_result("ruff_comprehensive", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_ruff_comprehensive, target)
+            cache_mgr.save_result("ruff_comprehensive", result, ["**/*.py"])
+            return result
+        
+        async def run_pip_audit_cached():
+            cached = cache_mgr.get_cached_result("pip_audit", ["requirements.txt", "pyproject.toml", "setup.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_pip_audit, target)
+            cache_mgr.save_result("pip_audit", result, ["requirements.txt", "pyproject.toml", "setup.py"])
+            return result
+        
+        async def run_structure_cached():
+            cached = cache_mgr.get_cached_result("structure", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_structure, target)
+            cache_mgr.save_result("structure", result, ["**/*.py"])
+            return result
+        
+        async def run_dead_code_cached():
+            cached = cache_mgr.get_cached_result("dead_code", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_dead_code, target)
+            cache_mgr.save_result("dead_code", result, ["**/*.py"])
+            return result
+        
+        async def run_efficiency_cached():
+            cached = cache_mgr.get_cached_result("efficiency", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_efficiency, target)
+            cache_mgr.save_result("efficiency", result, ["**/*.py"])
+            return result
+        
+        async def run_duplication_cached():
+            cached = cache_mgr.get_cached_result("duplication", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_duplication, target)
+            cache_mgr.save_result("duplication", result, ["**/*.py"])
+            return result
+        
+        async def run_git_info_cached():
+            # Git info changes frequently, use shorter cache (5 minutes)
+            cached = cache_mgr.get_cached_result("git_info", [".git/HEAD", ".git/index"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_git_info, target)
+            cache_mgr.save_result("git_info", result, [".git/HEAD", ".git/index"])
+            return result
+        
+        async def run_cleanup_cached():
+            # Cleanup scan doesn't need caching (it's fast and checks current state)
+            return await asyncio.to_thread(run_cleanup_scan, target)
+        
+        async def run_architecture_cached():
+            cached = cache_mgr.get_cached_result("architecture", ["**/*.py"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_architecture_visualizer, target)
+            cache_mgr.save_result("architecture", result, ["**/*.py"])
+            return result
+        
+        async def run_tests_cached():
+            cached = cache_mgr.get_cached_result("tests", ["tests/**/*.py", "**/*.py", "pytest.ini", "pyproject.toml"])
+            if cached:
+                return cached
+            result = await asyncio.to_thread(run_tests_coverage, target)
+            cache_mgr.save_result("tests", result, ["tests/**/*.py", "**/*.py", "pytest.ini", "pyproject.toml"])
+            return result
 
-        # Run ALL tools in parallel
-        log(f"[Job {job_id}] Launching tools in parallel using strict mode...")
+        # Run ALL tools in parallel with caching
+        log(f"[Job {job_id}] Launching tools in parallel with caching enabled...")
         results = await asyncio.gather(
-            run_with_log("Bandit", asyncio.to_thread(run_bandit, target)),
-            run_with_log("Secrets", asyncio.to_thread(run_secrets, target)),
-            run_with_log("Ruff", asyncio.to_thread(run_ruff, target)),
-            run_with_log("Pip-Audit", asyncio.to_thread(run_pip_audit, target)),
-            run_with_log("Structure", asyncio.to_thread(run_structure, target)),
-            run_with_log("Dead Code", asyncio.to_thread(run_dead_code, target)),
-            run_with_log("Efficiency", asyncio.to_thread(run_efficiency, target)),
-            run_with_log("Duplication", asyncio.to_thread(run_duplication, target)),
-            run_with_log("Git Info", asyncio.to_thread(run_git_info, target)),
-            run_with_log("Cleanup", asyncio.to_thread(run_cleanup_scan, target)),
-            run_with_log("Architecture", asyncio.to_thread(run_architecture_visualizer, target)),
-            run_with_log("Tests", asyncio.to_thread(run_tests_coverage, target))
+            run_with_log("Bandit", run_bandit_cached()),
+            run_with_log("Secrets", run_secrets_cached()),
+            run_with_log("Ruff", run_ruff_cached()),
+            run_with_log("Pip-Audit", run_pip_audit_cached()),
+            run_with_log("Structure", run_structure_cached()),
+            run_with_log("Dead Code", run_dead_code_cached()),
+            run_with_log("Efficiency", run_efficiency_cached()),
+            run_with_log("Duplication", run_duplication_cached()),
+            run_with_log("Git Info", run_git_info_cached()),
+            run_with_log("Cleanup", run_cleanup_cached()),
+            run_with_log("Architecture", run_architecture_cached()),
+            run_with_log("Tests", run_tests_cached())
         )
         
         duration = f"{time.time() - JOBS[job_id]['start_time']:.2f}s"
+        duration_seconds = time.time() - JOBS[job_id]['start_time']  # ADDED: numeric duration
         
         result_dict = {
             "bandit": results[0],
@@ -1198,7 +1519,8 @@ async def run_audit_background(job_id: str, path: str):
             "cleanup": results[9],
             "architecture": results[10],
             "tests": results[11],
-            "installed_tools": []
+            "installed_tools": [],
+            "duration_seconds": duration_seconds  # ADDED: for report context
         }
         
         # AUTO-GENERATE REPORT using Jinja2 engine
@@ -1227,7 +1549,16 @@ async def run_audit_background(job_id: str, path: str):
                 
         except Exception as e:
             # Fallback to legacy generator if Jinja2 fails
+            import traceback
+            error_details = traceback.format_exc()
             log(f"[Job {job_id}] Jinja2 failed, using legacy generator: {e}")
+            log(f"[Job {job_id}] Full error traceback:\n{error_details}")
+            # ALSO write to file for easier debugging
+            try:
+                with open("LAST_JINJA_ERROR.txt", "w") as err_f:
+                    err_f.write(error_details)
+            except:
+                pass
             report_content = generate_full_markdown_report(job_id, duration, result_dict, path)
             report_content = validate_report_integrity(report_content)
             
@@ -2458,6 +2789,98 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
 def audit_remote_repo(repo_url: str, branch: str = "main") -> str:
     """Audit a remote git repository."""
     return _audit_remote_repo_logic(repo_url, branch)
+
+
+@mcp.tool()
+def get_cache_stats(path: str) -> str:
+    """
+    Get statistics about cached audit results.
+    
+    Args:
+        path: Path to the project
+        
+    Returns:
+        JSON with cache statistics including age, validity, and files tracked
+    """
+    try:
+        from app.core.cache_manager import CacheManager
+        
+        cache_mgr = CacheManager(path, max_age_hours=1)
+        stats = cache_mgr.get_cache_stats()
+        
+        return json.dumps(stats, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def clear_audit_cache(path: str, tool_name: str = None) -> str:
+    """
+    Clear audit cache for a project.
+    
+    Args:
+        path: Path to the project
+        tool_name: Optional specific tool to clear (e.g., "bandit", "ruff").
+                   If not provided, clears all caches.
+    
+    Returns:
+        Confirmation message
+    """
+    try:
+        from app.core.cache_manager import CacheManager
+        
+        cache_mgr = CacheManager(path, max_age_hours=1)
+        
+        if tool_name:
+            cache_mgr.invalidate_tool(tool_name)
+            return json.dumps({
+                "status": "success",
+                "message": f"Cleared cache for {tool_name}",
+                "tool": tool_name
+            })
+        else:
+            cache_mgr.clear_all()
+            return json.dumps({
+                "status": "success",
+                "message": "Cleared all audit caches",
+                "cache_dir": str(cache_mgr.cache_dir)
+            })
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def run_ruff_comprehensive_check(path: str) -> str:
+    """
+    Run comprehensive Ruff linting (replaces Bandit, pycodestyle, isort, etc.).
+    
+    This single command replaces 6+ separate tools:
+    - Bandit (security) → Ruff --select S
+    - pycodestyle → Ruff --select E,W
+    - isort → Ruff --select I
+    - pyflakes → Ruff --select F
+    - McCabe → Ruff --select C90
+    - pydocstyle → Ruff --select D
+    
+    Args:
+        path: Path to the project
+        
+    Returns:
+        JSON with categorized issues (security, quality, imports, complexity, etc.)
+    """
+    try:
+        from pathlib import Path
+        
+        project_path = Path(path).resolve()
+        
+        if not project_path.exists():
+            return json.dumps({"status": "error", "error": f"Path does not exist: {path}"})
+        
+        result = run_ruff_comprehensive(project_path)
+        
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
 
 
 if __name__ == "__main__":

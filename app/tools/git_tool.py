@@ -144,7 +144,9 @@ class GitTool(BaseTool):
                 timeout=5,
                 cwd=path
             )
-            return result.stdout.strip() if result.returncode == 0 else "unknown"
+            if result.returncode == 0 and result.stdout:
+                return result.stdout.strip()
+            return "unknown"
         except Exception:
             return "unknown"
 
