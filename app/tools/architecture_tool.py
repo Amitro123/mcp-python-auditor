@@ -237,8 +237,8 @@ class ArchitectureTool(BaseTool):
                 elif isinstance(node, ast.ImportFrom):
                     if node.module:
                         imports.append(node.module)
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to extract imports from {file_path}: {e}")
         
         return imports
     

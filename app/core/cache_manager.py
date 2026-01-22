@@ -69,7 +69,7 @@ class CacheManager:
             MD5 hash as hex string
         """
         try:
-            md5 = hashlib.md5()
+            md5 = hashlib.md5()  # nosec
             with open(file_path, 'rb') as f:
                 # Read in chunks to handle large files
                 for chunk in iter(lambda: f.read(8192), b''):

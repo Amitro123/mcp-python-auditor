@@ -100,7 +100,39 @@ class ReportGeneratorV2:
         self.env.filters['round'] = lambda x, decimals=2: round(float(x), decimals) if x else 0
         
         logger.info(f"✅ Jinja2 template engine initialized (templates: {template_dir})")
-    
+
+    def _calculate_total_duration(self, tool_results: Dict[str, Any]) -> float | None:
+        """
+        Calculate total duration from individual tool execution times.
+
+        Handles multiple formats:
+        - execution_time_ms: milliseconds (from JSON-first architecture)
+        - duration_s: seconds (from parallel audit)
+        """
+        total_ms = 0
+        found_any = False
+
+        for key, value in tool_results.items():
+            if not isinstance(value, dict):
+                continue
+
+            # Check for execution_time_ms (JSON-first format)
+            if 'execution_time_ms' in value:
+                total_ms += value['execution_time_ms']
+                found_any = True
+            # Check for duration_s (parallel audit format)
+            elif 'duration_s' in value:
+                try:
+                    duration_s = float(value['duration_s'])
+                    total_ms += duration_s * 1000
+                    found_any = True
+                except (ValueError, TypeError):
+                    pass
+
+        if found_any:
+            return total_ms / 1000.0  # Convert to seconds
+        return None
+
     def generate_report(
         self,
         report_id: str,
@@ -141,6 +173,10 @@ class ReportGeneratorV2:
                     duration = float(duration.rstrip('s'))
                 except (ValueError, AttributeError):
                     duration = None
+
+            # If no duration at root, calculate from individual tool execution times
+            if duration is None:
+                duration = self._calculate_total_duration(tool_results)
             
             context = build_report_context(
                 raw_results=tool_results,
@@ -193,7 +229,8 @@ class ReportGeneratorV2:
                 
                 # Template-specific fields
                 "repo_name": Path(project_path).resolve().name,
-                "duration": tool_results.get("duration", "N/A"),
+                "repo_name": Path(project_path).resolve().name,
+                # "duration": "PRESERVED_FROM_CONTEXT", # Don't overwrite correct duration from build_report_context
                 "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
                 
                 # Raw results for template access

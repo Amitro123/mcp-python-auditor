@@ -54,7 +54,7 @@ def _is_inside_git_work_tree(path: Path) -> bool:
             cwd=str(path),
             check=True,
             capture_output=True
-        )
+        )  # nosec
         return True
     except subprocess.CalledProcessError:
         return False

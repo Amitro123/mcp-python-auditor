@@ -35,6 +35,23 @@ COVERAGE_THRESHOLD_MODERATE = 70
 COVERAGE_THRESHOLD_GOOD = 80
 
 
+def _extract_tool_data(raw_results: dict[str, Any], key: str) -> dict[str, Any]:
+    """
+    Extract tool data handling both flat and nested structures.
+
+    Handles:
+    1. Flat: raw_results[key] = {actual data}
+    2. Nested: raw_results[key] = {tool_name, status, data: {actual data}}
+    """
+    data = raw_results.get(key, {})
+
+    # If data has 'data' key with a dict value, extract the nested data
+    if isinstance(data, dict) and 'data' in data and isinstance(data.get('data'), dict):
+        return data['data']
+
+    return data if isinstance(data, dict) else {}
+
+
 def build_report_context(
     raw_results: dict[str, Any],
     project_path: str,
@@ -253,7 +270,7 @@ def _get_coverage_severity(raw_results: dict[str, Any]) -> dict[str, str]:
 def _normalize_git_info(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize git information - handles both 'git' and 'git_info' keys."""
     # Try git_info first (new format), then git (legacy)
-    git_data = raw_results.get("git_info") or raw_results.get("git", {})
+    git_data = _extract_tool_data(raw_results, "git_info") or _extract_tool_data(raw_results, "git")
     if not git_data:
         return {
             "available": False,
@@ -287,23 +304,26 @@ def _normalize_git_info(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_structure(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize project structure data."""
-    data = raw_results.get("structure", {})
+    data = _extract_tool_data(raw_results, "structure")
+
+    # Handle both 'directory_tree' and 'tree' field names
+    tree = data.get("directory_tree") or data.get("tree", "N/A")
 
     return {
         "available": bool(data),
-        "total_py_files": data.get("total_py_files", 0),  # FIXED: match template variable name
-        "total_files": data.get("total_py_files", 0),
+        "total_py_files": data.get("total_py_files") or data.get("total_files", 0),
+        "total_files": data.get("total_py_files") or data.get("total_files", 0),
         "total_lines": data.get("total_lines", 0),
-        "total_directories": len(data.get("top_directories", [])),
-        "directory_tree": data.get("directory_tree", "N/A"),  # FIXED: match template variable name
-        "tree": data.get("directory_tree", "N/A"),
+        "total_directories": len(data.get("top_directories", [])) or data.get("total_dirs", 0),
+        "directory_tree": tree,
+        "tree": tree,
         "top_directories": data.get("top_directories", [])
     }
 
 
 def _normalize_architecture(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize architecture analysis data."""
-    data = raw_results.get("architecture", {})
+    data = _extract_tool_data(raw_results, "architecture")
 
     return {
         "available": bool(data),
@@ -318,27 +338,51 @@ def _normalize_architecture(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_security(raw_results: dict[str, Any]) -> dict[str, Any]:
-    """Normalize security (Bandit) data."""
-    data = raw_results.get("bandit") or raw_results.get("security", {})
+    """
+    Normalize security (Bandit) data.
 
-    # Handle nested structure
-    bandit_data = data.get("code_security", data)
+    Handles BOTH:
+    1. Bandit field names (issue_severity, filename, issue_text, line_number)
+    2. Standard field names (severity, file, message, line) - from FastAuditTool or pre-normalized
+    """
+    # Extract tool data handling nested structure
+    bandit_data = _extract_tool_data(raw_results, 'bandit') or _extract_tool_data(raw_results, 'security')
 
-    issues = bandit_data.get("issues", [])
+    # Also handle 'code_security' wrapper if present
+    if 'code_security' in bandit_data:
+        bandit_data = bandit_data['code_security']
+
+    raw_issues = bandit_data.get('issues', [])
+
+    # Map fields to template-expected format
+    # Check BOTH Bandit field names AND standard field names
+    issues = []
+    for issue in raw_issues:
+        issues.append({
+            # Prefer standard names, fall back to Bandit names, then defaults
+            'severity': issue.get('severity') or issue.get('issue_severity', 'MEDIUM'),
+            'file': issue.get('file') or issue.get('filename', ''),
+            'line': issue.get('line') or issue.get('line_number', 0),
+            'message': issue.get('message') or issue.get('issue_text', ''),
+            'code': issue.get('code') or issue.get('test_id', ''),
+            'confidence': issue.get('confidence') or issue.get('issue_confidence', 'MEDIUM'),
+            'more_info': issue.get('more_info', ''),
+            'cwe': issue.get('cwe') or issue.get('issue_cwe', {})
+        })
 
     return {
-        "available": bool(data) and "error" not in data,
-        "files_scanned": bandit_data.get("files_scanned", 0),
-        "total_issues": len(issues),
-        "issues": issues[:20],  # Limit to top 20 for display
-        "has_issues": len(issues) > 0,
-        "severity_counts": _count_by_severity(issues)
+        'available': bool(bandit_data) and 'error' not in bandit_data,
+        'files_scanned': bandit_data.get('files_scanned', 0),
+        'total_issues': len(issues),
+        'issues': issues[:20],  # Limit to top 20 for display
+        'has_issues': len(issues) > 0,
+        'severity_counts': _count_by_severity(issues)
     }
 
 
 def _normalize_secrets(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize secrets detection data."""
-    data = raw_results.get("secrets", {})
+    data = _extract_tool_data(raw_results, "secrets")
     secrets = data.get("secrets", [])
 
     return {
@@ -369,13 +413,17 @@ def _generate_test_warning(data: dict[str, Any], total_files: int, total_execute
 
 
 def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
-    """Normalize test execution data."""
-    data = raw_results.get("tests", {})
+    """
+    Normalize test execution data.
 
-    total_files = data.get("total_test_files", 0)
-    tests_passed = data.get("tests_passed", 0)
-    tests_failed = data.get("tests_failed", 0)
-    tests_skipped = data.get("tests_skipped", 0)
+    Handles BOTH flat and nested data structures.
+    """
+    data = _extract_tool_data(raw_results, 'tests')
+
+    total_files = data.get('total_test_files', 0)
+    tests_passed = data.get('tests_passed', 0)
+    tests_failed = data.get('tests_failed', 0)
+    tests_skipped = data.get('tests_skipped', 0)
     total_executed = tests_passed + tests_failed
 
     # Detect premature stop
@@ -385,42 +433,111 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
         total_executed < total_files
     )
 
-    warning = _generate_test_warning(data, total_files, total_executed)
+    warning = data.get('warning', '')
 
-    # FIXED: Build test_breakdown with proper structure
+    # Validation: Test files found but no results
+    if total_files > 0 and total_executed == 0:
+        msg = "⚠️ Test files found but no tests executed."
+        warning = f"{warning} {msg}" if warning else msg
+
+    # FIXED: Get test_breakdown from JSON directly first to populate total_files
+    # The JSON already has the correct structure:
+    # "test_breakdown": {"unit": 49, "integration": 2, "e2e": 2, "total_files": 53}
+    raw_breakdown = data.get('test_breakdown', {})
+    
+    # Check raw_breakdown for files if total_files (from total_test_files) is 0
+    if total_files == 0:
+        total_files = raw_breakdown.get('total_files', 0)
+    
+    # Validation: Coverage reported but no test files
+    coverage_percent = data.get('coverage_percent', 0)
+    if coverage_percent > 0 and total_files == 0:
+        msg = "⚠️ Coverage reported but no test files detected."
+        warning = f"{warning} {msg}" if warning else msg
+
+    # Get test_list to count actual test functions
+    test_list = data.get('test_list', [])
+    total_tests = len(test_list)
+
+    # Count actual tests by category (based on path in test_list)
+    unit_tests_count = 0
+    integration_tests_count = 0
+    e2e_tests_count = 0
+
+    for test_id in test_list:
+        test_path = test_id.lower()
+        if '/integration/' in test_path or 'integration' in test_path:
+            integration_tests_count += 1
+        elif '/e2e/' in test_path or 'e2e' in test_path:
+            e2e_tests_count += 1
+        else:
+            unit_tests_count += 1
+
+    # Get file breakdown from JSON (for backwards compatibility)
+    raw_breakdown = data.get('test_breakdown', {})
+
+    # Build test_breakdown with ACTUAL TEST COUNTS (not file counts)
+    # If we have test_list, use actual counts; otherwise fall back to file counts
     test_breakdown = {
-        "unit": 1 if data.get("has_unit_tests", False) else 0,
-        "integration": 1 if data.get("has_integration_tests", False) else 0,
-        "e2e": 1 if data.get("has_e2e_tests", False) else 0,
-        "total_files": total_files
+        'unit': unit_tests_count if total_tests > 0 else raw_breakdown.get('unit', 0),
+        'integration': integration_tests_count if total_tests > 0 else raw_breakdown.get('integration', 0),
+        'e2e': e2e_tests_count if total_tests > 0 else raw_breakdown.get('e2e', 0),
+        'total_files': raw_breakdown.get('total_files', total_files)
+    }
+
+    # Also keep file counts for reference
+    file_breakdown = {
+        'unit': raw_breakdown.get('unit', 0),
+        'integration': raw_breakdown.get('integration', 0),
+        'e2e': raw_breakdown.get('e2e', 0),
+        'total_files': raw_breakdown.get('total_files', total_files)
     }
 
     return {
-        "available": bool(data),
-        "coverage_percent": data.get("coverage_percent", 0),
-        "coverage_report": data.get("coverage_report", ""),
-        "total_test_files": total_files,
-        "tests_passed": tests_passed,
-        "tests_failed": tests_failed,
-        "tests_skipped": tests_skipped,
-        "total_executed": total_executed,
-        "premature_stop": premature_stop,
-        "has_unit": data.get("has_unit_tests", False),
-        "has_integration": data.get("has_integration_tests", False),
-        "has_e2e": data.get("has_e2e_tests", False),
-        "test_breakdown": test_breakdown,  # FIXED: proper structure
-        "test_list": data.get("test_list", []),  # ADDED: for detailed test listing
-        "warning": warning
+        'available': bool(data),
+        'coverage_percent': coverage_percent,
+        'coverage_report': data.get('coverage_report', ''),
+        'total_test_files': total_files,
+        'total_tests': total_tests,  # ADDED: actual test count
+        'tests_passed': tests_passed,
+        'tests_failed': tests_failed,
+        'tests_skipped': tests_skipped,
+        'total_executed': total_executed,
+        'premature_stop': premature_stop,
+        'has_unit': test_breakdown['unit'] > 0 or file_breakdown['unit'] > 0,
+        'has_integration': test_breakdown['integration'] > 0 or file_breakdown['integration'] > 0,
+        'has_e2e': test_breakdown['e2e'] > 0 or file_breakdown['e2e'] > 0,
+        'test_breakdown': test_breakdown,  # Now contains actual test counts
+        'file_breakdown': file_breakdown,  # ADDED: file counts for reference
+        'test_list': test_list,
+        'warning': warning
     }
 
 
 def _normalize_complexity(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize complexity analysis data."""
-    data = raw_results.get("complexity", {})
+    data = _extract_tool_data(raw_results, "complexity")
 
-    # Fallback to Ruff (quality) complexity findings if main tool missing
+    # Fallback 1: Check efficiency data (FastAuditTool includes complexity)
+    if not data:
+        efficiency_data = _extract_tool_data(raw_results, "efficiency")
+        if efficiency_data:
+            complexity_issues = efficiency_data.get("complexity", [])
+            high_complexity = efficiency_data.get("high_complexity_functions", [])
+
+            if complexity_issues or high_complexity:
+                return {
+                    "available": True,
+                    "total_functions": efficiency_data.get("total_functions_analyzed", "N/A"),
+                    "average_complexity": efficiency_data.get("average_complexity", "N/A"),
+                    "high_complexity": complexity_issues or high_complexity,
+                    "very_high_complexity": [],
+                    "has_complex_functions": len(complexity_issues or high_complexity) > 0
+                }
+
+    # Fallback 2: Check Ruff (quality) complexity findings
     if not data and ("quality" in raw_results or "ruff" in raw_results):
-        ruff_data = raw_results.get("quality") or raw_results.get("ruff", {})
+        ruff_data = _extract_tool_data(raw_results, "quality") or _extract_tool_data(raw_results, "ruff")
         complexity_issues = ruff_data.get("complexity", [])
 
         if complexity_issues:
@@ -445,7 +562,7 @@ def _normalize_complexity(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_efficiency(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize efficiency analysis data."""
-    data = raw_results.get("efficiency", {})
+    data = _extract_tool_data(raw_results, "efficiency")
 
     # Map high_complexity_functions to issues if needed
     issues = data.get("issues", [])
@@ -478,7 +595,7 @@ def _normalize_efficiency(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_duplication(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize code duplication data."""
-    data = raw_results.get("duplication", {})
+    data = _extract_tool_data(raw_results, "duplication")
     duplicates = data.get("duplicates", [])
 
     # Group by file for better display
@@ -504,7 +621,7 @@ def _normalize_duplication(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_deadcode(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize dead code detection data."""
-    data = raw_results.get("deadcode") or raw_results.get("dead_code", {})
+    data = _extract_tool_data(raw_results, "deadcode") or _extract_tool_data(raw_results, "dead_code")
 
     dead_functions = data.get("dead_functions", [])
     unused_imports = data.get("unused_imports", [])
@@ -528,26 +645,29 @@ def _normalize_deadcode(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_cleanup(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize cleanup recommendations data."""
-    data = raw_results.get("cleanup", {})
+    data = _extract_tool_data(raw_results, "cleanup")
+
+    # Handle both 'cleanup_targets' and 'targets' field names
+    targets = data.get("cleanup_targets") or data.get("targets", {})
 
     return {
         "available": bool(data),
         "total_size_mb": data.get("total_size_mb", 0),
-        "cleanup_items": data.get("items", []),  # RENAMED: avoid conflict with dict.items()
-        "cleanup_targets": data.get("cleanup_targets", {}),
+        "cleanup_items": data.get("items", []),
+        "cleanup_targets": targets,
         "has_cleanup": len(data.get("items", [])) > 0
     }
 
 
 def _normalize_typing(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize type coverage data."""
-    data = raw_results.get("typing", {})
+    data = _extract_tool_data(raw_results, "typing")
 
     return {
         "available": bool(data),
-        "coverage_percent": data.get("coverage_percent", -1),
+        "coverage_percent": data.get("coverage_percent") or data.get("type_coverage_percent", -1),
         "untyped_functions": data.get("untyped_functions", 0),
-        "typed_functions": data.get("typed_functions", 0),
+        "typed_functions": data.get("typed_functions") or data.get("fully_typed_functions", 0),
         "total_functions": data.get("total_functions", 0),
         "has_untyped": data.get("untyped_functions", 0) > 0
     }
@@ -555,7 +675,7 @@ def _normalize_typing(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_gitignore(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize gitignore recommendations data."""
-    data = raw_results.get("gitignore", {})
+    data = _extract_tool_data(raw_results, "gitignore")
 
     return {
         "available": bool(data),
@@ -566,39 +686,57 @@ def _normalize_gitignore(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 def _build_tools_summary(raw_results: dict[str, Any]) -> list[dict[str, Any]]:
     """Build tool execution summary for the table."""
+    # Map display names to (primary_key, fallback_keys)
     tools = [
-        ("structure", "📁 Structure"),
-        ("architecture", "🏗️ Architecture"),
-        ("typing", "📝 Type Coverage"),
-        ("complexity", "🧮 Complexity"),
-        ("duplication", "🎭 Duplication"),
-        ("deadcode", "☠️ Dead Code"),
-        ("efficiency", "⚡ Efficiency"),
-        ("cleanup", "🧹 Cleanup"),
-        ("bandit", "🔒 Security (Bandit)"),
-        ("secrets", "🔐 Secrets"),
-        ("ruff", "🧹 Code Quality (Ruff)"),
-        ("tests", "✅ Tests"),
-        ("gitignore", "📋 Gitignore"),
-        ("git_info", "📝 Git Status"),
+        ("structure", "📁 Structure", []),
+        ("architecture", "🏗️ Architecture", []),
+        ("typing", "📝 Type Coverage", []),
+        ("complexity", "🧮 Complexity", ["efficiency"]),  # Complexity comes from efficiency/FastAudit
+        ("duplication", "🎭 Duplication", []),
+        ("dead_code", "☠️ Dead Code", ["deadcode"]),  # Handle both key names
+        ("efficiency", "⚡ Efficiency", []),
+        ("cleanup", "🧹 Cleanup", []),
+        ("bandit", "🔒 Security (Bandit)", []),
+        ("secrets", "🔐 Secrets", []),
+        ("ruff", "🧹 Code Quality (Ruff)", ["quality"]),  # Also check 'quality' key
+        ("tests", "✅ Tests", []),
+        ("gitignore", "📋 Gitignore", []),
+        ("git_info", "📝 Git Status", ["git"]),
     ]
 
     summary = []
 
-    for key, name in tools:
-        # Try both possible keys
-        data = raw_results.get(key) or raw_results.get(key.replace("_info", ""), {})
+    for key, name, fallbacks in tools:
+        # Try primary key first, then fallbacks
+        raw_data = raw_results.get(key)
+        tool_data = _extract_tool_data(raw_results, key)
 
-        status, details = _get_tool_status(key, data)
+        # Try fallback keys if primary not found
+        if not tool_data:
+            for fallback in fallbacks:
+                raw_data = raw_results.get(fallback) or raw_data
+                tool_data = _extract_tool_data(raw_results, fallback)
+                if tool_data:
+                    break
 
-        # ADDED: Extract duration_s from tool data
-        duration_s = data.get("duration_s", 0) if isinstance(data, dict) else 0
+        status, details = _get_tool_status(key, tool_data)
+
+        # Extract duration - check both wrapper (execution_time_ms) and inner (duration_s)
+        duration_s = 0
+        if isinstance(raw_data, dict):
+            # Try execution_time_ms first (from JSON wrapper), convert to seconds
+            exec_time_ms = raw_data.get("execution_time_ms", 0)
+            if exec_time_ms:
+                duration_s = exec_time_ms / 1000.0
+            else:
+                # Fall back to duration_s from inner data
+                duration_s = tool_data.get("duration_s", 0) if isinstance(tool_data, dict) else 0
 
         summary.append({
             "name": name,
             "status": status,
             "details": details,
-            "duration_s": f"{duration_s:.2f}" if duration_s else "0.00"  # ADDED: formatted duration
+            "duration_s": f"{duration_s:.2f}" if duration_s else "0.00"
         })
 
     return summary
@@ -734,7 +872,7 @@ def _calculate_top_priorities(raw_results: dict[str, Any]) -> list[dict[str, Any
 
 def _normalize_quality(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize quality/linting data (from Ruff/FastAudit)."""
-    data = raw_results.get("quality") or raw_results.get("ruff", {})
+    data = _extract_tool_data(raw_results, "quality") or _extract_tool_data(raw_results, "ruff")
 
     issues = []
 
@@ -766,6 +904,18 @@ def _normalize_quality(raw_results: dict[str, Any]) -> dict[str, Any]:
 
 
 def _count_by_severity(issues: list[dict[str, Any]]) -> dict[str, int]:
-    """Count issues by severity level."""
-    severities = [issue.get("severity", "UNKNOWN").upper() for issue in issues]
-    return dict(Counter(severities))
+    """
+    Count issues by severity level.
+    
+    FIXED: Now works with normalized 'severity' field
+    """
+    counts = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
+    
+    for issue in issues:
+        severity = issue.get('severity', 'MEDIUM').upper()
+        if severity in counts:
+            counts[severity] += 1
+        else:
+            counts['MEDIUM'] += 1
+    
+    return counts

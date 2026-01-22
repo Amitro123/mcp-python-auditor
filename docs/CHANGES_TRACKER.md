@@ -1,5 +1,108 @@
 # Changes Tracker
 
+## [2026-01-22] Report Accuracy Refinements
+
+### 🎯 Goal
+Fix misleading "No test files detected" warning and incorrect "Duration: N/A" field in audit reports.
+
+### 📝 Changes
+- **Modified `app/core/report_context.py`**:
+    - **`_normalize_tests`**: Added fallback to use `test_breakdown['total_files']` when the top-level `total_test_files` key is missing.
+- **Modified `app/core/report_generator_v2.py`**:
+    - Removed line that was overwriting the correctly calculated `duration` string.
+- **Modified `app/templates/audit_report_v3.md.j2`**:
+    - Removed redundant "Report Integrity Check" section which was causing duplication because the validation logic appends it post-generation.
+    - **Dead Code Section**: Increased display limit from 5 to 15 items and included `dead_functions` in the list to ensure full visibility of small-to-medium finding sets.
+
+### 🧪 Verification
+- **Verification Script**: Created `reproduce_warning.py` to confirm the warning existed with broken data and disappeared after the fix.
+- **Results**: Correctly identifies 53 test files and suppresses the warning.
+
+### ✅ Status
+- [x] Code implemented
+- [x] Verified with script
+- [x] Ready for production
+
+- [x] Ready for production
+
+---
+
+## [2026-01-22] Security Findings Cleanup
+
+### 🎯 Goal
+Eliminate false positive security warnings and fix actual security/stability issues identified in the audit report.
+
+### 📝 Changes
+- **Modified `app/core/cache_manager.py` & `app/tools/duplication_tool.py`**:
+    - Added `# nosec` annotations to MD5 hash generation used for file integrity/checksums (not security crypto), suppressing valid but contextually irrelevant Bandit warnings.
+- **Modified `app/main.py`**:
+    - Changed default binding from `0.0.0.0` to `127.0.0.1` to prevent accidental network exposure of the debug server.
+    - **Modified `app/tools/architecture_tool.py`**:
+    - Replaced unsafe `try/except/pass` block with structured logging to improve debuggability and code quality.
+- **Modified `app/core/file_discovery.py`**:
+    - Annotating `subprocess` call to `git` as safe (intended reliance on PATH).
+
+- **Modified `app/templates/audit_report_v3.md.j2`**:
+    - Increased security issue visibility from 5 to 15 items.
+    - Added collapsible `<details>` section to show *all* remaining issues, ensuring full transparency in the report.
+    - **Duplicates Section**: Applied the same visibility logic (Top 15 visible + collapsible section) to the Duplicates list, solving the issue of 300+ line reports.
+
+### 🧪 Verification
+- **Test Suite**: Ran `pytest tests/test_api.py` to ensure server and API functionality remains intact.
+- **Result**: Tests passed. False positives will be suppressed in next audit.
+
+### ✅ Status
+- [x] Code implemented
+- [x] Verified with test suite
+- [x] Ready for production
+
+---
+
+## [2026-01-22] Dead Code Execution Fix
+
+### 🎯 Goal
+Fix "Dead Code: Fail" errors caused by passing excessively large file lists to the command line (potential WinError 206) or timeouts when scanning too many files at once.
+
+### 📝 Changes
+- **Modified `app/tools/deadcode_tool.py`**:
+    - Implemented `run_tool_in_chunks` for Vulture execution.
+    - Files are now processed in batches of 50 instead of all at once.
+    - `merge_json=False` allows correct concatenation of Vulture's text-based output.
+
+### 🧪 Verification
+- **Test Suite**: Previous tests covered basic execution; this fix handles the scale issue identified in production.
+- **Expected Result**: Dead code tool should now complete successfully even on large codebases.
+
+### ✅ Status
+- [x] Code implemented
+- [x] Ready for production
+
+---
+
+## [2026-01-22] Report Normalization Fixes
+
+### 🎯 Goal
+Fix bugs in the audit report where security issues were missing due to incorrect field mapping, and test breakdown statistics were incorrect (0/0/0) despite tests running.
+
+### 📝 Changes
+- **Modified `app/core/report_context.py`**:
+    - **`_normalize_security`**: Updated to correctly map Bandit's raw field names (`issue_severity`, `filename`, `issue_text`) to the expected template fields.
+    - **`_normalize_tests`**: Updated to extract `test_breakdown` directly from the JSON results instead of recalculating (incorrectly) from flags.
+    - **`_count_by_severity`**: Updated to handle the normalized `severity` field for accurate counts.
+
+### 🧪 Verification
+- **Verification Script**: Created and ran `verify_fix.py` which simulated raw payloads and asserted correct normalization.
+- **Results**:
+    - Security count: 2 (1 HIGH, 1 MEDIUM) - ✅ Verified
+    - Test breakdown: Unit: 49, Integration: 2, E2E: 2 - ✅ Verified
+
+### ✅ Status
+- [x] Code implemented
+- [x] Verified with script
+- [x] Ready for production
+
+---
+
 ## [2026-01-14] Safety-First Execution Engine
 
 ### 🎯 Goal

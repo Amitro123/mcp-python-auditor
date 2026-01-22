@@ -1350,6 +1350,17 @@ async def run_audit_background(job_id: str, path: str):
             cache_mgr.save_result("tests", result, ["tests/**/*.py", "**/*.py", "pytest.ini", "pyproject.toml"])
             return result
 
+        async def run_typing_cached():
+            cached = cache_mgr.get_cached_result("typing", ["**/*.py"])
+            if cached: return cached
+            result = await asyncio.to_thread(lambda: TypingTool().analyze(target))
+            cache_mgr.save_result("typing", result, ["**/*.py"])
+            return result
+
+        async def run_gitignore_cached():
+            # Gitignore is fast and checks current state
+            return await asyncio.to_thread(lambda: GitignoreTool().analyze(target))
+
         # Run ALL tools in parallel with caching
         log(f"[Job {job_id}] Launching tools in parallel with caching enabled...")
         results = await asyncio.gather(
@@ -1364,7 +1375,9 @@ async def run_audit_background(job_id: str, path: str):
             run_with_log("Git Info", run_git_info_cached()),
             run_with_log("Cleanup", run_cleanup_cached()),
             run_with_log("Architecture", run_architecture_cached()),
-            run_with_log("Tests", run_tests_cached())
+            run_with_log("Tests", run_tests_cached()),
+            run_with_log("Typing", run_typing_cached()),
+            run_with_log("Gitignore", run_gitignore_cached())
         )
         
         duration = f"{time.time() - JOBS[job_id]['start_time']:.2f}s"
@@ -1383,6 +1396,8 @@ async def run_audit_background(job_id: str, path: str):
             "cleanup": results[9],
             "architecture": results[10],
             "tests": results[11],
+            "typing": results[12],
+            "gitignore": results[13],
             "installed_tools": [],
             "duration_seconds": duration_seconds  # ADDED: for report context
         }
@@ -2120,8 +2135,9 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
 @mcp.tool()
 def generate_full_report(path: str) -> str:
     """Runs ALL tools and generates a comprehensive Markdown report file."""
+    start_time = time.time()
     target_path = Path(path).resolve()
-    
+
     # Run all tools explicitly to catch errors
     results = {}
     tools = {
@@ -2130,15 +2146,27 @@ def generate_full_report(path: str) -> str:
         "secrets": SecretsTool(), "tests": TestsTool(), "gitignore": GitignoreTool(), "git": GitTool(),
     }
     for key, tool in tools.items():
-        try: results[key] = tool.analyze(target_path)
-        except Exception as e: results[key] = {"error": str(e)}
+        tool_start = time.time()
+        try:
+            results[key] = tool.analyze(target_path)
+            results[key]["duration_s"] = round(time.time() - tool_start, 2)
+        except Exception as e:
+            results[key] = {"error": str(e), "duration_s": round(time.time() - tool_start, 2)}
 
+    tool_start = time.time()
     results["bandit"] = run_bandit(target_path)
+    results["bandit"]["duration_s"] = round(time.time() - tool_start, 2)
+
+    tool_start = time.time()
     results["quality"] = FastAuditTool().analyze(target_path)
+    results["quality"]["duration_s"] = round(time.time() - tool_start, 2)
 
     # Calculate score
     score = _calculate_audit_score(results)
-    
+
+    # Add total duration
+    results["duration_seconds"] = time.time() - start_time
+
     # Generate Report
     report_id = f"audit__{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     generator = ReportGeneratorV2(REPORTS_DIR)
@@ -2149,7 +2177,7 @@ def generate_full_report(path: str) -> str:
         tool_results=results,
         timestamp=datetime.datetime.now()
     )
-    
+
     return f"Report generated successfully at: {report_path}"
 
 

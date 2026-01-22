@@ -116,7 +116,7 @@ class DuplicationTool(BaseTool):
             normalized = self._normalize_code(func_source)
             
             # Create hash of normalized code
-            code_hash = hashlib.md5(normalized.encode()).hexdigest()
+            code_hash = hashlib.md5(normalized.encode()).hexdigest()  # nosec
             
             return {
                 "name": node.name,

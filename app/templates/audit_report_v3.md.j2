@@ -27,12 +27,19 @@
 {% if security.total_issues > 0 %}
 ### 🛡️ Security Issues
 
-{% for issue in security.issues[:5] %}
+{% for issue in security.issues[:15] %}
 - **{{ issue.severity }}**: {{ issue.message }} (`{{ issue.file }}:{{ issue.line }}`)
 {% endfor %}
 
-{% if security.total_issues > 5 %}
-... and {{ security.total_issues - 5 }} more issues
+{% if security.total_issues > 15 %}
+<details>
+<summary>⚠️ See {{ security.total_issues - 15 }} more security issues</summary>
+
+{% for issue in security.issues[15:] %}
+- **{{ issue.severity }}**: {{ issue.message }} (`{{ issue.file }}:{{ issue.line }}`)
+{% endfor %}
+
+</details>
 {% endif %}
 
 {% else %}
@@ -50,10 +57,17 @@
 
 **Recommendation**: {{ coverage_severity.recommendation }}
 
-**Test Breakdown**:
-- Unit Tests: {{ tests.test_breakdown.unit }}
-- Integration Tests: {{ tests.test_breakdown.integration }}
-- E2E Tests: {{ tests.test_breakdown.e2e }}
+{% if tests.total_tests > 0 %}
+**Total Tests**: {{ tests.total_tests }}
+- Unit: {{ tests.test_breakdown.unit }}
+- Integration: {{ tests.test_breakdown.integration }}
+- E2E: {{ tests.test_breakdown.e2e }}
+{% else %}
+**Test Files**: {{ tests.total_test_files }}
+- Unit: {{ tests.test_breakdown.unit }}
+- Integration: {{ tests.test_breakdown.integration }}
+- E2E: {{ tests.test_breakdown.e2e }}
+{% endif %}
 
 {% if tests.warning %}
 ⚠️ **Warning**: {{ tests.warning }}
@@ -132,7 +146,7 @@ No structure information available
 - Dead functions: {{ deadcode.dead_functions|length }}
 
 **Top Issues**:
-{% for item in (deadcode.unused_vars + deadcode.unused_imports)[:5] %}
+{% for item in (deadcode.unused_vars + deadcode.unused_imports + deadcode.dead_functions)[:15] %}
 - `{{ item.name }}` in {{ item.file }}:{{ item.line }}
 {% endfor %}
 
@@ -152,12 +166,30 @@ No structure information available
 #### 🎭 DUPLICATES
 
 **Most Duplicated Functions** (similarity > 80%):
+{# Filter items first to avoid repeated iteration in template #}
+{% set duplicates_list = [] %}
 {% for dup in duplication.duplicates %}
-{% if dup.similarity > 80 %}
+    {% if dup.similarity > 80 %}
+        {% set _ = duplicates_list.append(dup) %}
+    {% endif %}
+{% endfor %}
+
+{% for dup in duplicates_list[:15] %}
 - `{{ dup.function_name }}` ({{ dup.similarity|round(1) }}% similar) - {{ dup.count }} instances
   - Locations: {{ dup.locations|join(', ') }}
-{% endif %}
 {% endfor %}
+
+{% if duplicates_list|length > 15 %}
+<details>
+<summary>▶️ See {{ duplicates_list|length - 15 }} more duplicates</summary>
+
+{% for dup in duplicates_list[15:] %}
+- `{{ dup.function_name }}` ({{ dup.similarity|round(1) }}% similar) - {{ dup.count }} instances
+  - Locations: {{ dup.locations|join(', ') }}
+{% endfor %}
+
+</details>
+{% endif %}
 {% else %}
 ✅ No significant code duplication detected
 {% endif %}
@@ -245,6 +277,3 @@ Architecture analysis not available
 
 *This report uses pre-calculated scores based on the algorithm in README.md. All numeric values are deterministic and not subject to interpretation.*
 
-## 🛡️ Report Integrity Check
-**Status:** {% if all_sections_present %}✅ Complete{% else %}⚠️ Incomplete{% endif %}
-{% if missing_sections %}Missing sections: {{ missing_sections|join(', ') }}{% endif %}

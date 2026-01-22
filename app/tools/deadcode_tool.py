@@ -67,40 +67,50 @@ class DeadcodeTool(BaseTool):
             try:
                 # Build command with explicit file list or directory
                 if file_list:
-                    cmd = [sys.executable, '-m', 'vulture', '--min-confidence', '80'] + file_list
+                    # Use chunking for explicit file lists to avoid WinError 206
+                    base_cmd = [sys.executable, '-m', 'vulture', '--min-confidence', '80']
+                    
+                    result = run_tool_in_chunks(
+                        base_cmd=base_cmd,
+                        files=file_list,
+                        chunk_size=50,
+                        merge_json=False,  # Vulture outputs text, not JSON
+                        timeout=120
+                    )
                 else:
-                    # Fallback: Build command with exclusions from centralized blacklist
+                    # Fallback: Run on project path with exclusions (Vulture handles recursion)
                     cmd = [sys.executable, '-m', 'vulture', str(project_path), '--min-confidence', '80']
                     
                     # Add each ignored directory as exclusion
                     for ignored_dir in self.IGNORED_DIRECTORIES:
                         cmd.extend(['--exclude', ignored_dir])
-                
-                result = subprocess.run(
-                    cmd,
-                    cwd=project_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    errors='replace'
-                )
+                        
+                    result = subprocess.run(
+                        cmd,
+                        cwd=project_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        errors='replace'
+                    )
                 
                 # Check return code
                 # Exit code 0: No dead code
                 # Exit code 1: Dead code found
-                # Exit code 3: Syntax error in one file (still produces results)
+                # Exit code 3: Syntax error (still produces results)
                 if result.returncode not in [0, 1, 3]:
                     if "not found" in result.stderr.lower():
                         logger.warning("Vulture not installed, falling back to basic analysis")
                         return self._fallback_analysis(project_path)
                     else:
+                        # Only log legitimate errors (WinError 206 should be gone now)
                         logger.error(f"Vulture failed with code {result.returncode}: {result.stderr}")
                         return {"error": f"Vulture execution failed: {result.stderr}"}
                 
                 stdout = result.stdout
                 
             except subprocess.TimeoutExpired:
-                 logger.error("Vulture timed out after 120s")
+                 logger.error("Vulture timed out")
                  return {"error": "Vulture timed out"}
             except FileNotFoundError:
                  logger.warning("Vulture command not found")
