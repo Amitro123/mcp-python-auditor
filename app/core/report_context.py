@@ -4,22 +4,22 @@ This module transforms raw audit results into a clean, normalized context for
 Jinja2 template rendering. It handles missing keys, inconsistent formats, and
 provides safe defaults to prevent "N/A" bugs.
 """
-from typing import Dict, Any, List
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 def build_report_context(
-    raw_results: Dict[str, Any],
+    raw_results: dict[str, Any],
     project_path: str,
     score: int,
     report_id: str,
     timestamp: datetime,
-    duration: float = None  # ADDED: duration parameter
-) -> Dict[str, Any]:
+    duration: float | None = None  # ADDED: duration parameter
+) -> dict[str, Any]:
     """
     Build normalized context for Jinja2 template rendering.
 
@@ -115,7 +115,7 @@ def _calculate_grade(score: int) -> str:
         return 'F'
 
 
-def _calculate_penalties(raw_results: Dict[str, Any]) -> Dict[str, int]:
+def _calculate_penalties(raw_results: dict[str, Any]) -> dict[str, int]:
     """Calculate penalty points for each category."""
     penalties = {
         'security': 0,
@@ -161,7 +161,7 @@ def _calculate_penalties(raw_results: Dict[str, Any]) -> Dict[str, int]:
     return penalties
 
 
-def _get_security_severity(raw_results: Dict[str, Any]) -> Dict[str, str]:
+def _get_security_severity(raw_results: dict[str, Any]) -> dict[str, str]:
     """Get security severity label and description."""
     security = raw_results.get('bandit') or raw_results.get('security', {})
     
@@ -192,7 +192,7 @@ def _get_security_severity(raw_results: Dict[str, Any]) -> Dict[str, str]:
         }
 
 
-def _get_coverage_severity(raw_results: Dict[str, Any]) -> Dict[str, str]:
+def _get_coverage_severity(raw_results: dict[str, Any]) -> dict[str, str]:
     """Get coverage severity label, description, and recommendation."""
     tests = raw_results.get('tests', {})
     coverage = tests.get('coverage_percent', 0)
@@ -229,7 +229,7 @@ def _get_coverage_severity(raw_results: Dict[str, Any]) -> Dict[str, str]:
         }
 
 
-def _normalize_git_info(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_git_info(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize git information - handles both 'git' and 'git_info' keys."""
     # Try git_info first (new format), then git (legacy)
     git_data = raw_results.get('git_info') or raw_results.get('git', {})
@@ -264,7 +264,7 @@ def _normalize_git_info(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_structure(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_structure(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize project structure data."""
     data = raw_results.get('structure', {})
 
@@ -280,7 +280,7 @@ def _normalize_structure(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_architecture(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_architecture(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize architecture analysis data."""
     data = raw_results.get('architecture', {})
 
@@ -296,7 +296,7 @@ def _normalize_architecture(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_security(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_security(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize security (Bandit) data."""
     data = raw_results.get('bandit') or raw_results.get('security', {})
 
@@ -318,7 +318,7 @@ def _normalize_security(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_secrets(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_secrets(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize secrets detection data."""
     data = raw_results.get('secrets', {})
     secrets = data.get('secrets', [])
@@ -332,7 +332,7 @@ def _normalize_secrets(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_tests(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize test execution data."""
     data = raw_results.get('tests', {})
 
@@ -389,7 +389,7 @@ def _normalize_tests(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_complexity(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_complexity(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize complexity analysis data."""
     data = raw_results.get('complexity', {})
 
@@ -418,7 +418,7 @@ def _normalize_complexity(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_efficiency(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_efficiency(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize efficiency analysis data."""
     data = raw_results.get('efficiency', {})
 
@@ -451,7 +451,7 @@ def _normalize_efficiency(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_duplication(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_duplication(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize code duplication data."""
     data = raw_results.get('duplication', {})
     duplicates = data.get('duplicates', [])
@@ -478,7 +478,7 @@ def _normalize_duplication(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_deadcode(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_deadcode(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize dead code detection data."""
     data = raw_results.get('deadcode') or raw_results.get('dead_code', {})
 
@@ -502,7 +502,7 @@ def _normalize_deadcode(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_cleanup(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_cleanup(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize cleanup recommendations data."""
     data = raw_results.get('cleanup', {})
 
@@ -515,7 +515,7 @@ def _normalize_cleanup(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_typing(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_typing(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize type coverage data."""
     data = raw_results.get('typing', {})
 
@@ -529,7 +529,7 @@ def _normalize_typing(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _normalize_gitignore(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_gitignore(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize gitignore recommendations data."""
     data = raw_results.get('gitignore', {})
 
@@ -540,7 +540,7 @@ def _normalize_gitignore(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_tools_summary(raw_results: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _build_tools_summary(raw_results: dict[str, Any]) -> list[dict[str, Any]]:
     """Build tool execution summary for the table."""
     tools = [
         ('structure', '📁 Structure'),
@@ -580,7 +580,7 @@ def _build_tools_summary(raw_results: Dict[str, Any]) -> List[Dict[str, Any]]:
     return summary
 
 
-def _get_tool_status(tool_key: str, data: Dict[str, Any]) -> tuple:
+def _get_tool_status(tool_key: str, data: dict[str, Any]) -> tuple:
     """Get status and details for a specific tool."""
     if not data:
         return '⚠️ Skip', 'Tool did not run'
@@ -652,7 +652,7 @@ def _get_tool_status(tool_key: str, data: Dict[str, Any]) -> tuple:
     return 'ℹ️ Info', 'Analysis complete'
 
 
-def _calculate_top_priorities(raw_results: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _calculate_top_priorities(raw_results: dict[str, Any]) -> list[dict[str, Any]]:
     """Calculate top 3 priority fixes with impact estimates."""
     priorities = []
 
@@ -688,7 +688,7 @@ def _calculate_top_priorities(raw_results: Dict[str, Any]) -> List[Dict[str, Any
     return priorities[:3]
 
 
-def _normalize_quality(raw_results: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_quality(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize quality/linting data (from Ruff/FastAudit)."""
     data = raw_results.get('quality') or raw_results.get('ruff', {})
 
@@ -721,7 +721,7 @@ def _normalize_quality(raw_results: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _count_by_severity(issues: List[Dict[str, Any]]) -> Dict[str, int]:
+def _count_by_severity(issues: list[dict[str, Any]]) -> dict[str, int]:
     """Count issues by severity level."""
     from collections import Counter
     severities = [issue.get('severity', 'UNKNOWN').upper() for issue in issues]
