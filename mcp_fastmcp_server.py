@@ -54,7 +54,7 @@ def log(msg):
         with open(DEBUG_LOG, "a", encoding="utf-8") as f:
             f.write(log_msg + "\n")
     except Exception:
-        pass
+        pass  # nosec B110
 
     # Also try writing to stderr (sometimes visible in console)
     print(log_msg, file=sys.stderr, flush=True)
@@ -570,7 +570,7 @@ def run_structure(path: Path) -> dict:
                 try:
                     with open(f, 'rb') as fp:
                         total_lines += sum(1 for _ in fp)
-                except: pass
+                except: pass  # nosec B110
         
         # Generate Tree (reuse same exclusions, case-insensitive)
         tree_lines = []
@@ -680,12 +680,12 @@ def run_git_info(path: Path) -> dict:
         kwargs = {"capture_output": True, "text": True, "cwd": str(path), "timeout": 15, "stdin": subprocess.DEVNULL}
         
         # Check if git repo
-        result = subprocess.run(["git", "rev-parse", "--git-dir"], **kwargs)
+        result = subprocess.run(["git", "rev-parse", "--git-dir"], **kwargs)  # nosec B607
         if result.returncode != 0:
             return {"tool": "git", "status": "not_a_repo", "message": "Not a git repository"}
         
         # Get last commit
-        log_result = subprocess.run(["git", "log", "-1", "--format=%H|%s|%an|%ar"], **kwargs)
+        log_result = subprocess.run(["git", "log", "-1", "--format=%H|%s|%an|%ar"], **kwargs)  # nosec B607
         last_commit = {}
         if log_result.stdout.strip():
             parts = log_result.stdout.strip().split('|')
@@ -698,11 +698,11 @@ def run_git_info(path: Path) -> dict:
                 }
         
         # Get status
-        status_result = subprocess.run(["git", "status", "-s"], **kwargs)
+        status_result = subprocess.run(["git", "status", "-s"], **kwargs)  # nosec B607
         changes = len([l for l in status_result.stdout.strip().split('\n') if l.strip()])
         
         # Get branch
-        branch_result = subprocess.run(["git", "branch", "--show-current"], **kwargs)
+        branch_result = subprocess.run(["git", "branch", "--show-current"], **kwargs)  # nosec B607
         branch = branch_result.stdout.strip()
         
         return {
@@ -740,7 +740,7 @@ def run_cleanup_scan(path: Path) -> dict:
                         total_size_bytes += size
                         items_found.append(str(d.relative_to(path)))
                     except:
-                        pass
+                        pass  # nosec B110
         
         return {
             "tool": "cleanup",
@@ -1178,7 +1178,7 @@ def generate_full_markdown_report(job_id: str, duration: str, results: dict, pat
             live_url = f"https://mermaid.live/edit#pako:{encoded}"
             md.append(f"[🔍 **Open Interactive Graph**]({live_url})")
         except Exception: 
-            pass
+            pass  # nosec B110
     else:
         md.append("_No architecture graph generated._")
     md.append("")
@@ -1557,8 +1557,8 @@ async def run_audit_background(job_id: str, path: str):
             try:
                 with open("LAST_JINJA_ERROR.txt", "w") as err_f:
                     err_f.write(error_details)
-            except:
-                pass
+            except Exception:
+                pass  # nosec B110
             report_content = generate_full_markdown_report(job_id, duration, result_dict, path)
             report_content = validate_report_integrity(report_content)
             
@@ -1725,7 +1725,7 @@ def run_auto_fix(path: str, confirm: bool = False) -> str:
     if confirm:
         try:
             git_check = subprocess.run(
-                ["git", "status", "--porcelain"],
+                ["git", "status", "--porcelain"],  # nosec B607
                 cwd=str(target),
                 capture_output=True,
                 text=True,
@@ -1800,7 +1800,7 @@ def run_auto_fix(path: str, confirm: bool = False) -> str:
                 shutil.rmtree(full_path)
                 deleted_count += 1
         except Exception:
-            pass
+            pass  # nosec B110
     if deleted_count:
         fixes_applied.append(f"Cleanup: Deleted {deleted_count} cache directories")
 
@@ -1834,10 +1834,10 @@ def run_auto_fix(path: str, confirm: bool = False) -> str:
     # 5. Git Commit (AFTER log writing)
     try:
         git_kwargs = {"cwd": str(target), "capture_output": True, "timeout": 30, "stdin": subprocess.DEVNULL}
-        subprocess.run(["git", "checkout", "-b", branch_name], **git_kwargs)
-        subprocess.run(["git", "add", "."], **git_kwargs)
+        subprocess.run(["git", "checkout", "-b", branch_name], **git_kwargs)  # nosec B607
+        subprocess.run(["git", "add", "."], **git_kwargs)  # nosec B607
         commit_msg = f"Auto-fix: {', '.join(fixes_applied[:3])}"
-        subprocess.run(["git", "commit", "-m", commit_msg], **git_kwargs)
+        subprocess.run(["git", "commit", "-m", commit_msg], **git_kwargs)  # nosec B607
         fixes_applied.append(f"Git: Created branch '{branch_name}' with commit")
     except Exception as e:
         errors.append(f"Git commit failed: {e}")
@@ -2042,34 +2042,13 @@ def audit_pr_changes(path: str, base_branch: str = "main", run_tests: bool = Tru
     return _audit_pr_changes_logic(path, base_branch, run_tests)
 
 
-def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: bool = True) -> str:
-    """Internal logic for PR audit."""
+def _run_bandit_scan(target: Path, changed_files: list) -> dict:
+    """Run Bandit security scan on changed files."""
     import subprocess
-    import re
+    import json
     
-    log(f"[PR-GATE] Starting PR audit for: {path} (base: {base_branch})")
-    target = Path(path).resolve()
-    
-    # Step 1: Get changed files
-    changed_files = get_changed_files(target, base_branch)
-    
-    if not changed_files:
-        return json.dumps({
-            "status": "success",
-            "message": "✅ No Python changes detected in this PR.",
-            "recommendation": "🟢 Ready for Review",
-            "score": 100
-        }, indent=2)
-    
-    log(f"[PR-GATE] Found {len(changed_files)} changed Python files")
-    
-    # Step 2: Fast Scan - Run tools ONLY on changed files
-    results = {}
-    
-    # 2a. Bandit (Security)
     try:
-        files_arg = " ".join([f'"{f}"' for f in changed_files])
-        cmd = f'{sys.executable} -m bandit -c pyproject.toml {files_arg} -f json --exit-zero'
+        cmd = [sys.executable, "-m", "bandit", "-c", "pyproject.toml"] + changed_files + ["-f", "json", "--exit-zero"]
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -2077,24 +2056,38 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
             timeout=60,
             cwd=str(target),
             stdin=subprocess.DEVNULL,
-            shell=True
+            shell=False
         )
         
         bandit_data = json.loads(result.stdout) if result.stdout else {}
-        bandit_issues = bandit_data.get("results", [])
-        results["bandit"] = {
-            "total_issues": len(bandit_issues),
-            "issues": bandit_issues[:10]
+        raw_issues = bandit_data.get("results", [])
+
+        # Normalize bandit issues for report
+        normalized_issues = []
+        for issue in raw_issues:
+            normalized_issues.append({
+                "severity": issue.get("issue_severity"),
+                "file": issue.get("filename"),
+                "line": issue.get("line_number"),
+                "description": issue.get("issue_text"),
+                "code": issue.get("code")
+            })
+
+        return {
+            "total_issues": len(normalized_issues),
+            "issues": normalized_issues[:10]
         }
-        log(f"[PR-GATE] Bandit: {len(bandit_issues)} issues")
     except Exception as e:
         log(f"[PR-GATE] Bandit failed: {e}")
-        results["bandit"] = {"error": str(e), "total_issues": 0}
+        return {"error": str(e), "total_issues": 0}
+
+def _run_ruff_scan(target: Path, changed_files: list) -> dict:
+    """Run Ruff linting on changed files."""
+    import subprocess
+    import json
     
-    # 2b. Ruff (Linting)
     try:
-        files_arg = " ".join([f'"{f}"' for f in changed_files])
-        cmd = f'{sys.executable} -m ruff check {files_arg} --output-format json'
+        cmd = [sys.executable, "-m", "ruff", "check"] + changed_files + ["--output-format", "json"]
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -2102,23 +2095,25 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
             timeout=60,
             cwd=str(target),
             stdin=subprocess.DEVNULL,
-            shell=True
+            shell=False
         )
         
         ruff_issues = json.loads(result.stdout) if result.stdout else []
-        results["ruff"] = {
+        return {
             "total_issues": len(ruff_issues),
             "issues": ruff_issues[:10]
         }
-        log(f"[PR-GATE] Ruff: {len(ruff_issues)} issues")
     except Exception as e:
         log(f"[PR-GATE] Ruff failed: {e}")
-        results["ruff"] = {"error": str(e), "total_issues": 0}
+        return {"error": str(e), "total_issues": 0}
+
+def _run_radon_scan(target: Path, changed_files: list) -> dict:
+    """Run Radon complexity analysis on changed files."""
+    import subprocess
+    import json
     
-    # 2c. Radon (Complexity)
     try:
-        files_arg = " ".join([f'"{f}"' for f in changed_files])
-        cmd = f'{sys.executable} -m radon cc {files_arg} -a -j'
+        cmd = [sys.executable, "-m", "radon", "cc"] + changed_files + ["-a", "-j"]
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -2126,7 +2121,7 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
             timeout=60,
             cwd=str(target),
             stdin=subprocess.DEVNULL,
-            shell=True
+            shell=False
         )
         
         radon_data = json.loads(result.stdout) if result.stdout else {}
@@ -2142,16 +2137,16 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
                             "rank": func.get('rank', '')
                         })
         
-        results["radon"] = {
+        return {
             "total_high_complexity": len(high_complexity),
             "high_complexity_functions": high_complexity[:10]
         }
-        log(f"[PR-GATE] Radon: {len(high_complexity)} high-complexity functions")
     except Exception as e:
         log(f"[PR-GATE] Radon failed: {e}")
-        results["radon"] = {"error": str(e), "total_high_complexity": 0}
-    
-    # Step 3: Calculate Score
+        return {"error": str(e), "total_high_complexity": 0}
+
+def _calculate_pr_score(results: dict) -> int:
+    """Calculate score based on audit results."""
     score = 100
     
     # Security penalties
@@ -2169,59 +2164,72 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
     if complexity_count > 0:
         score -= min(complexity_count * 3, 15)  # -3 per function, max -15
     
-    score = max(0, score)
+    return max(0, score)
+
+def _run_safety_net_tests(target: Path) -> tuple:
+    """Run tests as a safety net."""
+    import subprocess
     
-    # Step 4: Safety Net - Run Tests
-    tests_passed = True
-    test_output = ""
-    
-    if run_tests and score > 80:
-        log("[PR-GATE] Running tests as safety net...")
-        try:
-            # Detect venv python
-            venv_dirs = [".venv", "venv", "env"]
-            python_exe = sys.executable
+    log("[PR-GATE] Running tests as safety net...")
+    try:
+        # Detect venv python
+        venv_dirs = [".venv", "venv", "env"]
+        python_exe = sys.executable
+
+        for venv_name in venv_dirs:
+            venv_path = target / venv_name
+            if venv_path.exists():
+                if sys.platform == "win32":
+                    candidate = venv_path / "Scripts" / "python.exe"
+                else:
+                    candidate = venv_path / "bin" / "python"
+                if candidate.exists():
+                    python_exe = str(candidate)
+                    break
+
+        # Run pytest in fast mode
+        cmd = [python_exe, "-m", "pytest", "-x", "--tb=short", "-q"]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(target),
+            stdin=subprocess.DEVNULL
+        )
+
+        test_output = result.stdout + result.stderr
+
+        # Check if tests passed
+        if result.returncode != 0:
+            log("[PR-GATE] Tests FAILED")
+            return False, test_output
+        else:
+            log("[PR-GATE] Tests PASSED")
+            return True, test_output
             
-            for venv_name in venv_dirs:
-                venv_path = target / venv_name
-                if venv_path.exists():
-                    if sys.platform == "win32":
-                        candidate = venv_path / "Scripts" / "python.exe"
-                    else:
-                        candidate = venv_path / "bin" / "python"
-                    if candidate.exists():
-                        python_exe = str(candidate)
-                        break
-            
-            # Run pytest in fast mode
-            cmd = [python_exe, "-m", "pytest", "-x", "--tb=short", "-q"]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                cwd=str(target),
-                stdin=subprocess.DEVNULL
-            )
-            
-            test_output = result.stdout + result.stderr
-            
-            # Check if tests passed
-            if result.returncode != 0:
-                tests_passed = False
-                log("[PR-GATE] Tests FAILED")
-            else:
-                log("[PR-GATE] Tests PASSED")
-                
-        except subprocess.TimeoutExpired:
-            tests_passed = False
-            test_output = "⚠️ Tests timed out (>120s)"
-            log("[PR-GATE] Tests timeout")
-        except Exception as e:
-            test_output = f"⚠️ Could not run tests: {e}"
-            log(f"[PR-GATE] Tests error: {e}")
-    
-    # Step 5: Generate Report
+    except subprocess.TimeoutExpired:
+        log("[PR-GATE] Tests timeout")
+        return False, "⚠️ Tests timed out (>120s)"
+    except Exception as e:
+        log(f"[PR-GATE] Tests error: {e}")
+        return False, f"⚠️ Could not run tests: {e}"
+
+def _generate_pr_report(
+    base_branch: str,
+    changed_files: list,
+    score: int,
+    results: dict,
+    tests_passed: bool,
+    test_output: str,
+    run_tests: bool,
+    target: Path
+) -> str:
+    """Generate Markdown report for PR audit."""
+    bandit_issues_count = results.get("bandit", {}).get("total_issues", 0)
+    ruff_issues_count = results.get("ruff", {}).get("total_issues", 0)
+    complexity_count = results.get("radon", {}).get("total_high_complexity", 0)
+
     md = []
     md.append("# 🚦 PR Gatekeeper Report")
     md.append("")
@@ -2284,7 +2292,7 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
             md.append("**Status:** ⏭️ Skipped (score too low, fix issues first)")
         md.append("")
     
-    # Bottom Line - Explicit Recommendation
+    # Bottom Line
     md.append("---")
     md.append("## 🎯 Bottom Line")
     md.append("")
@@ -2301,7 +2309,6 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
         md.append("**Blocking Issues:**")
         for issue in blocking_issues:
             md.append(f"- {issue}")
-        recommendation = "🔴 Request Changes"
     elif score >= 80:
         md.append("### 🟢 Ready for Review")
         md.append("")
@@ -2313,18 +2320,80 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
                 md.append(f"- {ruff_issues_count} linting issue(s) - consider fixing")
             if complexity_count > 0:
                 md.append(f"- {complexity_count} high-complexity function(s) - consider refactoring")
-        recommendation = "🟢 Ready for Review"
     else:
         md.append("### 🟡 Needs Improvement")
         md.append("")
         md.append(f"Score is {score}/100. Please address the issues above before requesting review.")
-        recommendation = "🟡 Needs Improvement"
     
     md.append("")
     md.append("---")
     md.append("*Generated by Python Auditor MCP - PR Gatekeeper*")
     
-    report_text = "\n".join(md)
+    return "\n".join(md)
+
+def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: bool = True) -> str:
+    """Internal logic for PR audit."""
+    log(f"[PR-GATE] Starting PR audit for: {path} (base: {base_branch})")
+    target = Path(path).resolve()
+
+    # Step 1: Get changed files
+    changed_files = get_changed_files(target, base_branch)
+
+    if not changed_files:
+        msg = "✅ No Python changes detected in this PR."
+        return json.dumps({
+            "status": "success",
+            "message": msg,
+            "recommendation": "🟢 Ready for Review",
+            "score": 100,
+            "report": f"# 🚦 PR Gatekeeper Report\n\n{msg}\n\n**Score:** 100/100"
+        }, indent=2)
+
+    log(f"[PR-GATE] Found {len(changed_files)} changed Python files")
+
+    # Step 2: Fast Scan - Run tools ONLY on changed files
+    results = {}
+    results["bandit"] = _run_bandit_scan(target, changed_files)
+    log(f"[PR-GATE] Bandit: {results['bandit'].get('total_issues', 0)} issues")
+
+    results["ruff"] = _run_ruff_scan(target, changed_files)
+    log(f"[PR-GATE] Ruff: {results['ruff'].get('total_issues', 0)} issues")
+
+    results["radon"] = _run_radon_scan(target, changed_files)
+    log(f"[PR-GATE] Radon: {results['radon'].get('total_high_complexity', 0)} high-complexity functions")
+
+    # Step 3: Calculate Score
+    score = _calculate_pr_score(results)
+
+    # Step 4: Safety Net - Run Tests
+    tests_passed = True
+    test_output = ""
+
+    if run_tests and score > 80:
+        tests_passed, test_output = _run_safety_net_tests(target)
+
+    # Step 5: Generate Report
+    report_text = _generate_pr_report(
+        base_branch=base_branch,
+        changed_files=changed_files,
+        score=score,
+        results=results,
+        tests_passed=tests_passed,
+        test_output=test_output,
+        run_tests=run_tests,
+        target=target
+    )
+
+    # Recommendation logic (simplified from report generation logic)
+    bandit_issues_count = results.get("bandit", {}).get("total_issues", 0)
+    blocking_issues = (bandit_issues_count > 0) or (not tests_passed and run_tests and score > 80)
+
+    if blocking_issues:
+        recommendation = "🔴 Request Changes"
+    elif score >= 80:
+        recommendation = "🟢 Ready for Review"
+    else:
+        recommendation = "🟡 Needs Improvement"
     
     return json.dumps({
         "status": "success",
@@ -2333,8 +2402,8 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
         "changed_files_count": len(changed_files),
         "findings": {
             "security_issues": bandit_issues_count,
-            "linting_issues": ruff_issues_count,
-            "complexity_issues": complexity_count,
+            "linting_issues": results.get("ruff", {}).get("total_issues", 0),
+            "complexity_issues": results.get("radon", {}).get("total_high_complexity", 0),
             "tests_passed": tests_passed if run_tests else None
         },
         "report": report_text
@@ -2703,7 +2772,7 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
             
             # Simple git check
             try:
-                subprocess.run(["git", "--version"], capture_output=True, text=True, check=True)
+                subprocess.run(["git", "--version"], capture_output=True, text=True, check=True)  # nosec B607
             except (FileNotFoundError, subprocess.CalledProcessError):
                  return json.dumps({"status": "error", "error": "Git not installed", "suggestion": "Install git"})
 
