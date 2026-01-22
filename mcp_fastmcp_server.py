@@ -1342,8 +1342,8 @@ def validate_report_integrity(report_content: str) -> str:
         "## 📂 Project Structure",
         "## 📊 Detailed Findings",
         "### 🛡️ Security",
-        "## 🎭 DUPLICATES",
-        "### 🧪 Tests & Coverage"
+        "#### 🎭 DUPLICATES",
+        "## 🧪 Test Coverage"
     ]
     missing = [r for r in required if r not in report_content]
     
