@@ -195,12 +195,12 @@ Architecture analysis not available
 **Cleanup Available**: {{ cleanup.total_size_mb }}MB
 
 **Targets**:
-{% for target, count in cleanup.cleanup_targets.items() %}
+{% for target, count in cleanup['cleanup_targets'].items() %}
 - {{ target }}: {{ count }} directories
 {% endfor %}
 
 **Items**:
-{% for item in cleanup.cleanup_items[:10] %}
+{% for item in cleanup['cleanup_items'][:10] %}
 - {{ item }}
 {% endfor %}
 {% else %}
