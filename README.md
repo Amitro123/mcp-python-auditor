@@ -601,6 +601,19 @@ run_ruff_comprehensive_check(path="/project")
 
 ## 🎉 Recent Improvements
 
+**v2.9 - Architecture Refactor (Jan 23, 2026)**
+- ✅ **Modular Tool Architecture**: Migrated monolithic server functions to dedicated `Tool` classes
+- ✅ **Code Reduction**: Removed ~337 lines of boilerplate, improving maintainability
+- ✅ **Standardized Interface**: All tools now inherit from `BaseTool` with consistent error handling and timeouts
+- ✅ **Enhanced Testability**: Isolated tool logic allows for more granular unit testing
+
+**v2.8 - Incremental Audit System (Jan 2026)**
+- ✅ **90%+ Faster Audits**: Analyzing only changed files (60s → 5s)
+- ✅ **Smart Change Detection**: MD5-based tracking via `.audit_index/`
+- ✅ **Hybrid Execution**: Full runs for structure/architecture, incremental for linter/security
+- ✅ **Result Merging**: Intelligently combines cached + new results for complete reports
+- 📚 See: `docs/INCREMENTAL_AUDIT_GUIDE.md`
+
 **v2.7 - Performance Optimization Suite (Jan 2026)**
 - ✅ **Intelligent Caching**: 35-880x speedup with MD5-based file change detection
 - ✅ **Ruff Comprehensive**: Single tool replaces 6+ linters (45x faster)
