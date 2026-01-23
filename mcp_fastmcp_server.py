@@ -529,83 +529,10 @@ def run_pip_audit(path: Path) -> dict:
         return {"tool": "pip-audit", "status": "error", "error": str(e), "vulnerabilities": [], "total_vulnerabilities": 0}
 
 
-def run_structure(path: Path) -> dict:
-    """Analyze project structure and generate a tree view."""
-    try:
-        p = Path(path)
-        
-        # Use os.walk with proper exclusions instead of glob (case-insensitive)
-        exclude_dirs_lower = {
-            "htmlcov", "reports", "site-packages", "node_modules", 
-            ".git", "__pycache__", ".venv", "venv", ".idea", ".vscode", 
-            "build", "dist", ".pytest_cache", ".mypy_cache", "env", ".env",
-            "fresh-install-test", "eggs", ".eggs", "lib", "lib64"
-        }
-        
-        py_files = []
-        for root, dirs, files in os.walk(p):
-            # Skip excluded directories (case-insensitive, in-place modification)
-            dirs[:] = [d for d in dirs if d.lower() not in exclude_dirs_lower and not d.startswith(".")]
-            py_files.extend([Path(root) / f for f in files if f.endswith(".py")])
-        
-        # Fast line counting (binary mode is faster)
-        total_lines = 0
-        if len(py_files) < 2000:
-            for f in py_files:
-                try:
-                    with open(f, 'rb') as fp:
-                        total_lines += sum(1 for _ in fp)
-                except: pass  # nosec B110
-        
-        # Generate Tree (reuse same exclusions, case-insensitive)
-        tree_lines = []
-        
-        def _generate_tree(directory, prefix="", depth=0):
-            if depth > 3: return # Max depth
-            
-            items = []
-            try:
-                for x in directory.iterdir():
-                    # Case-insensitive exclusion check
-                    if x.name.lower() in exclude_dirs_lower: continue
-                    if x.name.startswith('.'): continue
-                    if x.is_file() and x.suffix in {'.pyc', '.pyo', '.html', '.js', '.css'}: continue # Skip report artifacts
-                    items.append(x)
-            except PermissionError: return
-
-            items.sort(key=lambda x: (x.is_file(), x.name))
-            
-            count = len(items)
-            for i, item in enumerate(items):
-                is_last = i == count - 1
-                connector = "└── " if is_last else "├── "
-                
-                icon = "📁" if item.is_dir() else "🐍" if item.suffix == ".py" else "📄"
-                tree_lines.append(f"{prefix}{connector}{icon} {item.name}")
-                
-                if item.is_dir():
-                    extension = "    " if is_last else "│   "
-                    _generate_tree(item, prefix + extension, depth + 1)
-
-        _generate_tree(p)
-        
-        # Cap tree size
-        tree_str = "\n".join(tree_lines[:100])
-        if len(tree_lines) > 100:
-            tree_str += "\n... (truncated for brevity)"
-
-        top_dirs = [d.name for d in p.iterdir() if d.is_dir() and not d.name.startswith('.')]
-        
-        return {
-            "tool": "structure",
-            "status": "analyzed",
-            "total_py_files": len(py_files),
-            "total_lines": total_lines,
-            "top_directories": top_dirs[:20],
-            "directory_tree": tree_str
-        }
-    except Exception as e:
-        return {"tool": "structure", "status": "error", "error": str(e)}
+async def run_structure(target: str) -> dict:
+    """Analyze project structure using StructureTool."""
+    tool = StructureTool()
+    return await asyncio.to_thread(tool.analyze, Path(target))
 
 
 def run_dead_code(path: Path) -> dict:
@@ -1107,7 +1034,7 @@ def _generate_tool_summary(results: dict) -> List[str]:
         else: return "ℹ️ Info"
 
     tools_summary = [
-        ("📁 Structure", results.get("structure", {}), lambda r: f"{r.get('total_py_files', 0)} files, {r.get('total_directories', 0)} dirs"),
+        ("📁 Structure", results.get("structure", {}), lambda r: f"{r.get('total_files', 0)} files, {r.get('total_dirs', 0)} dirs"),
         ("🏗️ Architecture", results.get("architecture", {}), lambda r: f"{r.get('total_dependencies', 0)} dependencies"),
         ("🧮 Complexity", results.get("efficiency", {}), lambda r: f"{len(r.get('high_complexity_functions', []))} high-complexity functions"),
         ("🎭 Duplication", results.get("duplication", {}), lambda r: f"{r.get('total_duplicates', 0)} duplicate blocks"),
@@ -1222,13 +1149,12 @@ def generate_full_markdown_report(job_id: str, duration: str, results: dict, pat
     try:
         md.append("## 📂 Project Structure")
         struct = results.get("structure", {})
-        md.append(f"**Files:** {struct.get('total_py_files', 0)} Python | **Lines:** {struct.get('total_lines', 0)}")
-        if struct.get("directory_tree"):
+        file_counts = struct.get("file_counts", {})
+        py_count = file_counts.get(".py", 0)
+        md.append(f"**Files:** {struct.get('total_files', 0)} total ({py_count} Python) | **Directories:** {struct.get('total_dirs', 0)}")
+        if struct.get("tree"):
             md.append("### 📁 Tree View")
-            md.append("```\n" + struct.get("directory_tree") + "\n```")
-        else:
-            md.append("### Top Directories")
-            for d in struct.get("top_directories", [])[:10]: md.append(f"- `/{d}`")
+            md.append("```\n" + struct.get("tree") + "\n```")
         md.append("")
     except Exception as e:
          log(f"Error in Structure section: {e}")
@@ -1357,7 +1283,7 @@ async def run_audit_background(job_id: str, path: str):
         async def run_structure_cached():
             cached = cache_mgr.get_cached_result("structure", ["**/*.py"])
             if cached: return cached
-            result = await asyncio.to_thread(run_structure, target)
+            result = await run_structure(target)
             cache_mgr.save_result("structure", result, ["**/*.py"])
             return result
         
