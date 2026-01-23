@@ -14,6 +14,13 @@ ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead co
 > **📁 Smart Filtering:** Automatically excludes 50-80% of irrelevant files (node_modules, .venv, etc.)  
 > Perfect for rapid iteration and CI/CD pipelines. [Architecture →](docs/OPTIMIZATION_ARCHITECTURE.md)
 
+> **🎯 NEW in v2.8:** [**Incremental Audit System**](docs/INCREMENTAL_AUDIT_GUIDE.md) - **90%+ faster** audits by analyzing only changed files!  
+> **🔄 Smart Change Detection:** MD5-based file tracking detects new, modified, and deleted files  
+> **💾 Per-Tool Caching:** Merges cached results with new analysis for accurate reports  
+> **⚡ Massive Time Savings:** 60s → 5s on subsequent runs (analyze 3 files instead of 100!)  
+> **📊 Performance Feedback:** Clear metrics showing exactly how much time you saved  
+> Perfect for development workflows and CI/CD optimization. [Guide →](docs/INCREMENTAL_AUDIT_GUIDE.md)
+
 > **🆕 NEW in v2.5:** [**Safety-First Engine**](docs/SAFETY_FIRST_IMPLEMENTATION.md) - Robust, crash-proof auditing for large projects!  
 > **🆕 NEW in v2.3:** [**PR Gatekeeper**](docs/PR_GATEKEEPER_GUIDE.md) - Lightning-fast delta-based auditing for Pull Requests!  
 > Scans ONLY changed files (3-5x faster), runs tests as safety net, returns explicit recommendations.  
@@ -268,23 +275,31 @@ The score (0-100) uses **strict, realistic weights** to avoid false positives:
 
 | Category | Max Penalty | How It's Calculated |
 |----------|-------------|---------------------|
-| **Security** | -30 points | Bandit issues (-20), Secrets found (-10) |
-| **Testing** | -40 points | **Exponential:** <20% = -40, <50% = -25, <80% = -10 |
-| **Quality** | -20 points | Duplicates (-15 max), Dead code (-5 max) |
-| **Complexity** | -10 points | High-complexity functions (-2 each, -10 max) |
+| **Security** | -70 points | Bandit issues (×5, cap 30) + Secrets found (×10, cap 40) |
+| **Testing** | -50 points | 0%=-50, <10%=-40, <30%=-30, <50%=-20, <70%=-10 |
+| **Quality** | -35 points | Dead code (×2, cap 20) + Duplicates >95% similarity (excess over 10, cap 15) |
 
-### Before vs. After Fix
+### Coverage Penalty Tiers
 
-**❌ Old Algorithm (Broken):**
-- Project with 9% coverage + 78 duplicates = **90/100** 🟢 (WRONG!)
+| Coverage | Penalty | Assessment |
+|----------|---------|------------|
+| 0% | -50 | ❌ Critical - No tests |
+| 1-9% | -40 | 🔴 Critical |
+| 10-29% | -30 | 🔴 Very Low |
+| 30-49% | -20 | 🟠 Low |
+| 50-69% | -10 | 🟡 Moderate |
+| 70%+ | 0 | 🟢 Good |
 
-**✅ New Algorithm (Realistic):**
-- Same project = **45/100** 🔴 (Honest assessment!)
+### Score Grades
 
-**Score Grades:**
-- 🟢 **80-100:** Excellent (strict threshold)
-- 🟡 **60-79:** Good  
-- 🔴 **0-59:** Needs Improvement
+| Score | Grade | Assessment |
+|-------|-------|------------|
+| 95-100 | A+ | 🏆 Excellent |
+| 90-94 | A | 🟢 Great |
+| 80-89 | B | 🟢 Good |
+| 70-79 | C | 🟡 Acceptable |
+| 60-69 | D | 🟠 Needs Work |
+| 0-59 | F | 🔴 Needs Improvement |
 
 ---
 

@@ -35,6 +35,7 @@ from app.tools.gitignore_tool import GitignoreTool
 from app.tools.git_tool import GitTool
 from app.tools.typing_tool import TypingTool
 from app.core.cache_manager import CacheManager
+from app.core.incremental_engine import IncrementalEngine
 # Trigger reload for report_context changes
 from app.core.report_generator_v2 import ReportGeneratorV2
 
@@ -714,8 +715,16 @@ def run_cleanup_scan(path: Path) -> dict:
         total_size_bytes = 0
         items_found = []
         
+        # Directories to exclude from cleanup suggestions
+        exclude_patterns = {'.venv', 'venv', 'env', 'node_modules', 'site-packages', '.git'}
+
         for pattern in cleanup_targets.keys():
             for d in path.glob(f"**/{pattern}"):
+                # Skip if path contains excluded directories
+                path_str = str(d)
+                if any(excl in path_str for excl in exclude_patterns):
+                    continue
+
                 if d.is_dir():
                     try:
                         size = sum(f.stat().st_size for f in d.rglob('*') if f.is_file())
@@ -807,6 +816,49 @@ def _categorize_test_files(target_path: Path) -> dict:
         "total_files": len(all_test_files)
     }
 
+
+def _collect_test_names(project_path: Path, python_exe: str) -> list:
+    """Collect all test names using pytest --collect-only."""
+    try:
+        cmd = [
+            python_exe, '-m', 'pytest', '--collect-only', '-q', '--color=no',
+            '--ignore=node_modules', '--ignore=venv', '--ignore=.venv',
+            '--ignore=dist', '--ignore=build', '--ignore=.git',
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,  # Increased from 30s for larger projects
+            cwd=project_path,
+            errors='replace'
+        )
+
+        # Parse test count from output (e.g., "142 tests collected")
+        test_list = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            # Look for test IDs like "tests/test_api.py::test_root_endpoint"
+            if '::test_' in line or '::Test' in line:
+                test_list.append(line)
+
+        # If no detailed list, try to get count from summary
+        if not test_list:
+            import re
+            match = re.search(r'(\d+)\s+tests?\s+collected', result.stdout + result.stderr)
+            if match:
+                count = int(match.group(1))
+                # Create placeholder list with count
+                test_list = [f"test_{i}" for i in range(count)]
+
+        return test_list
+
+    except Exception as e:
+        log(f"Failed to collect test names: {e}")
+        return []
+
+
 def run_tests_coverage(path: Path) -> dict:
     """Run pytest with coverage to analyze test suite."""
     try:
@@ -856,7 +908,10 @@ def run_tests_coverage(path: Path) -> dict:
         output = result.stdout + result.stderr
         coverage_percent, tests_passed, tests_failed = _parse_pytest_output(output)
         test_breakdown = _categorize_test_files(target_path)
-        
+
+        # Collect test names for actual test count
+        test_list = _collect_test_names(target_path, python_exe)
+
         return {
             "tool": "pytest",
             "status": "success" if result.returncode in [0, 1] else "error",
@@ -864,6 +919,8 @@ def run_tests_coverage(path: Path) -> dict:
             "tests_passed": tests_passed,
             "tests_failed": tests_failed,
             "test_breakdown": test_breakdown,
+            "test_list": test_list,
+            "total_test_files": test_breakdown.get("total_files", 0),
             "python_exe": python_exe
         }
         
@@ -1222,21 +1279,22 @@ def generate_full_markdown_report(job_id: str, duration: str, results: dict, pat
 
 def validate_report_integrity(report_content: str) -> str:
     """Ensures report has all required sections (Security, Quality, Duplication, Tests)."""
+    # Updated to match actual template section headers
     required = [
         "## 📂 Project Structure",
         "## 📊 Detailed Findings",
-        "### 🛡️ Security",
-        "#### 🎭 DUPLICATES",
-        "## 🧪 Test Coverage"
+        "## 🔒 Security Analysis",  # Fixed: was "### 🛡️ Security"
+        "## 🧪 Test Coverage",
+        "## 🧹 Code Quality"  # Includes duplication subsection
     ]
     missing = [r for r in required if r not in report_content]
-    
+
     footer = "\n\n## 🛡️ Report Integrity Check\n"
     if missing:
         footer += f"**Status:** ⚠️ Incomplete\nMissing sections: {', '.join(missing)}"
     else:
         footer += "**Status:** ✅ Pass (All sections verified)"
-    
+
     return report_content + footer
 
 
@@ -1598,7 +1656,8 @@ def _auto_fix_execute(target: Path, files_to_delete: List[str]) -> str:
             if full_path.exists():
                 shutil.rmtree(full_path)
                 deleted_count += 1
-        except Exception: pass
+        except Exception as e:  # nosec B110 - cleanup failures are non-critical
+            log(f"Cleanup: Could not delete {rel_path}: {e}")
     if deleted_count: fixes_applied.append(f"Cleanup: Deleted {deleted_count} cache directories")
 
     # 3. Style Fixes (Ruff)
@@ -2214,6 +2273,154 @@ def run_ruff_comprehensive_check(path: str) -> str:
         if not project_path.exists(): return json.dumps({"status": "error", "error": f"Path does not exist: {path}"})
         result = run_ruff_comprehensive(project_path)
         return json.dumps(result, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+async def start_incremental_audit(
+    project_path: str,
+    force_full: bool = False
+) -> str:
+    """
+    Smart audit that only analyzes changed files.
+    
+    First run = full audit. Subsequent runs = incremental (90%+ faster).
+    
+    Args:
+        project_path: Path to the Python project to audit
+        force_full: If True, force a full audit even if cache exists
+        
+    Returns:
+        JSON string with audit results and performance metrics
+        
+    Example:
+        First run: Analyzes all 100 files in 60s
+        Second run (3 files changed): Analyzes 3 files in 5s (saved 55s!)
+    """
+    try:
+        target_path = Path(project_path).resolve()
+        
+        if not target_path.exists():
+            return json.dumps({
+                "status": "error",
+                "error": f"Path does not exist: {project_path}"
+            }, indent=2)
+        
+        log(f"[INCREMENTAL] Starting audit for: {target_path} (force_full={force_full})")
+        
+        # Initialize incremental engine
+        engine = IncrementalEngine(target_path)
+        
+        # Prepare tools (same as regular audit)
+        tools = {
+            "structure": StructureTool(),
+            "architecture": ArchitectureTool(),
+            "typing": TypingTool(),
+            "duplication": DuplicationTool(),
+            "deadcode": DeadcodeTool(),
+            "efficiency": FastAuditTool(),
+            "secrets": SecretsTool(),
+            "tests": TestsTool(),
+            "gitignore": GitignoreTool(),
+            "git": GitTool(),
+            "bandit": lambda p: run_bandit(p),
+            "quality": FastAuditTool(),
+        }
+        
+        # Run incremental audit
+        result = await engine.run_audit(tools, force_full=force_full)
+        
+        # Calculate score
+        score = _calculate_audit_score(result.tool_results)
+        
+        # Generate report
+        report_id = f"audit__{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        generator = ReportGeneratorV2(REPORTS_DIR)
+        report_path = generator.generate_report(
+            report_id=report_id,
+            project_path=str(target_path),
+            score=score,
+            tool_results=result.tool_results,
+            timestamp=datetime.datetime.now()
+        )
+        
+        # Build response
+        response = {
+            "status": "success",
+            "mode": result.mode,
+            "summary": result.get_summary(),
+            "score": score,
+            "duration_seconds": round(result.duration_seconds, 2),
+            "report_path": str(report_path),
+            "changes": {
+                "new_files": len(result.changes.new_files),
+                "modified_files": len(result.changes.modified_files),
+                "deleted_files": len(result.changes.deleted_files),
+                "cached_files": len(result.changes.unchanged_files)
+            },
+            "performance": {
+                "time_saved_seconds": round(result.time_saved_seconds, 1) if result.time_saved_seconds else None,
+                "efficiency_gain": f"{((result.time_saved_seconds / (result.duration_seconds + result.time_saved_seconds)) * 100):.0f}%" if result.time_saved_seconds else "N/A"
+            },
+            "cache_stats": result.cache_stats
+        }
+        
+        log(f"[INCREMENTAL] {result.get_summary()}")
+        return json.dumps(response, indent=2)
+        
+    except Exception as e:
+        log(f"[INCREMENTAL] Error: {e}")
+        import traceback
+        return json.dumps({
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }, indent=2)
+
+
+@mcp.tool()
+def get_incremental_stats(project_path: str) -> str:
+    """
+    Get statistics about the incremental audit system.
+    
+    Shows:
+    - File index status
+    - Cached tools
+    - Cache sizes
+    - Last update times
+    """
+    try:
+        target_path = Path(project_path).resolve()
+        engine = IncrementalEngine(target_path)
+        stats = engine.get_stats()
+        return json.dumps(stats, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def clear_incremental_cache(project_path: str, tool_name: str = None) -> str:
+    """
+    Clear incremental audit cache.
+    
+    Args:
+        project_path: Path to the project
+        tool_name: Specific tool to clear (None = clear all)
+        
+    Returns:
+        JSON with status and count of cleared caches
+    """
+    try:
+        target_path = Path(project_path).resolve()
+        engine = IncrementalEngine(target_path)
+        cleared = engine.clear_cache(tool_name)
+        
+        return json.dumps({
+            "status": "success",
+            "message": f"Cleared {cleared} cache file(s)",
+            "tool": tool_name if tool_name else "all"
+        }, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
 
