@@ -206,179 +206,11 @@ def get_relevant_files(project_path: Path, tool_name: str) -> List[Path]:
 # COMPREHENSIVE RUFF - Replaces Multiple Tools
 # ============================================================
 
-def run_ruff_comprehensive(path: Path) -> dict:
-    """Run Ruff with all rule categories to replace multiple tools."""
-    
-    # Rule categories to enable
-    # Full list: https://docs.astral.sh/ruff/rules/
-    rule_sets = {
-        'security': 'S',      # Bandit rules
-        'errors': 'E',        # pycodestyle errors
-        'warnings': 'W',      # pycodestyle warnings
-        'pyflakes': 'F',      # Unused imports, undefined names
-        'complexity': 'C90',  # McCabe complexity
-        'imports': 'I',       # Import sorting
-        'docstrings': 'D',    # pydocstyle
-        'performance': 'PERF', # Performance anti-patterns
-        'bugbear': 'B',       # Common bugs
-    }
-    
-    # Combine all rules
-    all_rules = ','.join(rule_sets.values())
-    
-    cmd = [
-        sys.executable,
-        '-m', 'ruff',
-        'check',
-        str(path),
-        '--select', all_rules,
-        '--output-format', 'json',
-        '--exit-zero',  # Don't fail on issues
-    ]
-    
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=10,  # Ruff is FAST - 10s is plenty
-            cwd=path,
-            stdin=subprocess.DEVNULL
-        )
-        
-        issues = json.loads(result.stdout) if result.stdout else []
-        
-        # Categorize issues by type
-        categorized = {
-            'security': [],      # S rules (Bandit replacement)
-            'quality': [],       # E, W rules
-            'imports': [],       # I, F401 rules
-            'complexity': [],    # C90 rules
-            'docstrings': [],    # D rules
-            'performance': [],   # PERF, B rules
-            'other': []
-        }
-        
-        for issue in issues:
-            code = issue.get('code', '')
-            
-            if code.startswith('S'):
-                categorized['security'].append(issue)
-            elif code.startswith(('E', 'W')):
-                categorized['quality'].append(issue)
-            elif code.startswith('I') or code == 'F401':
-                categorized['imports'].append(issue)
-            elif code.startswith('C90'):
-                categorized['complexity'].append(issue)
-            elif code.startswith('D'):
-                categorized['docstrings'].append(issue)
-            elif code.startswith(('PERF', 'B')):
-                categorized['performance'].append(issue)
-            else:
-                categorized['other'].append(issue)
-        
-        total_issues = len(issues)
-        files_analyzed = len(set(i.get('filename') for i in issues)) if issues else 0
-        
-        return {
-            'tool': 'ruff_comprehensive',
-            'status': 'issues_found' if total_issues > 0 else 'clean',
-            'total_issues': total_issues,
-            'categorized': categorized,
-            'issues': issues,  # Raw issues for compatibility
-            'files_analyzed': files_analyzed,
-            'summary': {
-                'security': len(categorized['security']),
-                'quality': len(categorized['quality']),
-                'imports': len(categorized['imports']),
-                'complexity': len(categorized['complexity']),
-                'performance': len(categorized['performance']),
-                'docstrings': len(categorized['docstrings']),
-            },
-            # Backward compatibility fields
-            'code_security': {
-                'issues': categorized['security'],
-                'files_scanned': files_analyzed
-            }
-        }
-        
-    except subprocess.TimeoutExpired:
-        return {
-            'tool': 'ruff_comprehensive',
-            'status': 'error',
-            'error': 'Ruff timed out (should never happen!)'
-        }
-    except json.JSONDecodeError as e:
-        return {
-            'tool': 'ruff_comprehensive',
-            'status': 'error',
-            'error': f'Failed to parse Ruff JSON output: {str(e)}'
-        }
-    except Exception as e:
-        return {
-            'tool': 'ruff_comprehensive',
-            'status': 'error',
-            'error': f'Ruff failed: {str(e)}'
-        }
-
-
 def run_bandit(path: Path) -> dict:
-    """Run real Bandit security analysis (using pyproject.toml config)."""
-    try:
-        target_path = Path(path).resolve()
-        
-        # Use explicit config to exclude tests and skip false positives
-        cmd = [
-            sys.executable, "-m", "bandit",
-            "-c", "pyproject.toml",
-            "-r", str(target_path),
-            "-f", "json",
-            "--exit-zero"
-        ]
-        
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=120,
-                cwd=str(target_path), # Important: run from root so config is found
-                stdin=subprocess.DEVNULL
-            )
-        except subprocess.TimeoutExpired:
-            return {"tool": "bandit", "status": "error", "error": "Timeout (>120s)", "issues": []}
-            
-        bandit_data = {}
-        if result.stdout.strip():
-            try:
-                bandit_data = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                pass
-                
-        issues = bandit_data.get("results", [])
-        
-        # Filter logic is now handled by Bandit config (B101 etc skipped), 
-        # but we can add extra safety here if needed.
-        
-        # Extract files scanned from metrics
-        metrics = bandit_data.get("metrics", {})
-        files_scanned = metrics.get("_totals", {}).get("loc", 0) if metrics else 0
-        
-        # If metrics doesn't have totals, count unique files from results
-        if files_scanned == 0 and issues:
-            files_scanned = len(set(issue.get("filename", "") for issue in issues))
-        
-        return {
-            "tool": "bandit",
-            "status": "issues_found" if issues else "clean",
-            "total_issues": len(issues),
-            "issues": issues,
-            "metrics": metrics,
-            "files_scanned": files_scanned
-        }
-        
-    except Exception as e:
-        return {"tool": "bandit", "status": "error", "error": str(e), "issues": [], "total_issues": 0}
+    """Run Bandit security analysis using BanditTool."""
+    from app.tools.bandit_tool import BanditTool
+    tool = BanditTool()
+    return tool.analyze(Path(path))
 
 
 def run_secrets(path: Path) -> dict:
@@ -445,53 +277,10 @@ def run_ruff(path: Path) -> dict:
 
 
 def run_pip_audit(path: Path) -> dict:
-    """Run pip-audit to check for vulnerable dependencies."""
-    try:
-        # Ensure absolute path for Windows compatibility
-        target_path = Path(path).resolve()
-        
-        # Check if requirements.txt exists - much faster scan
-        req_file = target_path / "requirements.txt"
-        if req_file.exists():
-            cmd = ["pip-audit", "-r", str(req_file), "-f", "json"]
-        else:
-            # Fallback to environment scan with longer timeout
-            cmd = ["pip-audit", "-f", "json"]
-        
-        try:
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                timeout=180, 
-                cwd=str(target_path),
-                stdin=subprocess.DEVNULL
-            )
-        except subprocess.TimeoutExpired:
-            return {"tool": "pip_audit", "status": "error", "error": "Timeout (>180s)"}
-        
-        try:
-            data = json.loads(result.stdout) if result.stdout else []
-        except json.JSONDecodeError:
-            data = []
-        
-        # Safe handling - ensure data is a list
-        if not isinstance(data, list):
-            data = []
-        
-        return {
-            "tool": "pip-audit",
-            "status": "vulnerabilities_found" if data else "clean",
-            "total_vulnerabilities": len(data) if data else 0,
-            "vulnerabilities": (data or [])[:20],
-            "scan_mode": "requirements.txt" if req_file.exists() else "environment"
-        }
-    except FileNotFoundError:
-        return {"tool": "pip-audit", "status": "skipped", "error": "pip-audit not installed", "vulnerabilities": [], "total_vulnerabilities": 0}
-    except subprocess.TimeoutExpired:
-        return {"tool": "pip-audit", "status": "error", "error": "Timeout (>180s)", "vulnerabilities": [], "total_vulnerabilities": 0}
-    except Exception as e:
-        return {"tool": "pip-audit", "status": "error", "error": str(e), "vulnerabilities": [], "total_vulnerabilities": 0}
+    """Run pip-audit vulnerability scan using PipAuditTool."""
+    from app.tools.pip_audit_tool import PipAuditTool
+    tool = PipAuditTool()
+    return tool.analyze(Path(path))
 
 
 def run_structure(target: str) -> dict:
@@ -517,22 +306,8 @@ def run_dead_code(path: Path) -> dict:
 
 def run_efficiency(path: Path) -> dict:
     """Run FastAudit (Ruff) for complexity and performance checks."""
-    try:
-        target_path = Path(path).resolve()
-        tool = FastAuditTool()
-        result = tool.analyze(target_path)
-        
-        # Map to expected format for backward compatibility
-        return {
-            "tool": "ruff",
-            "status": result.get("status", "clean"),
-            "high_complexity_functions": result.get("complexity", []),
-            "total_high_complexity": len(result.get("complexity", [])),
-            "performance_issues": result.get("performance", []),
-            "total_functions_analyzed": result.get("total_issues", 0)
-        }
-    except Exception as e:
-         return {"tool": "ruff", "status": "error", "error": str(e), "high_complexity_functions": [], "total_high_complexity": 0}
+    tool = FastAuditTool()
+    return tool.analyze(Path(path))
 
 
 def run_duplication(path: Path) -> dict:
@@ -557,46 +332,10 @@ def run_git_info(path: Path) -> dict:
 
 
 def run_cleanup_scan(path: Path) -> dict:
-    """Scan for cleanup opportunities (cache dirs, temp files) - Simplified version."""
-    try:
-        cleanup_targets = {
-            "__pycache__": 0,
-            ".pytest_cache": 0,
-            ".mypy_cache": 0,
-            ".ruff_cache": 0,
-        }
-        
-        total_size_bytes = 0
-        items_found = []
-        
-        # Directories to exclude from cleanup suggestions
-        exclude_patterns = {'.venv', 'venv', 'env', 'node_modules', 'site-packages', '.git'}
-
-        for pattern in cleanup_targets.keys():
-            for d in path.glob(f"**/{pattern}"):
-                # Skip if path contains excluded directories
-                path_str = str(d)
-                if any(excl in path_str for excl in exclude_patterns):
-                    continue
-
-                if d.is_dir():
-                    try:
-                        size = sum(f.stat().st_size for f in d.rglob('*') if f.is_file())
-                        cleanup_targets[pattern] += 1
-                        total_size_bytes += size
-                        items_found.append(str(d.relative_to(path)))
-                    except:
-                        pass  # nosec B110
-        
-        return {
-            "tool": "cleanup",
-            "status": "cleanup_available" if total_size_bytes > 0 else "clean",
-            "total_size_mb": round(total_size_bytes / (1024 * 1024), 2),
-            "cleanup_targets": {k: v for k, v in cleanup_targets.items() if v > 0},
-            "items": items_found[:20]
-        }
-    except Exception as e:
-        return {"tool": "cleanup", "status": "error", "error": str(e)}
+    """Scan for cleanup opportunities using CleanupTool."""
+    from app.tools.cleanup_tool import CleanupTool
+    tool = CleanupTool()
+    return tool.analyze(Path(path))
 
 
 def run_tests_coverage(path: Path) -> dict:
@@ -744,8 +483,8 @@ def _calculate_audit_score(results: dict) -> int:
     dead_code_items = len(results.get("dead_code", {}).get("unused_items", []))
     score -= min(dead_code_items, 5)  # -1 per dead item, cap at -5
     
-    # 4. Complexity Penalty (Max -10)
-    complex_funcs = len(results.get("efficiency", {}).get("high_complexity_functions", []))
+    # 4. Complexity Penalty (Max -10) - uses FastAuditTool format
+    complex_funcs = len(results.get("efficiency", {}).get("complexity", []))
     score -= min(complex_funcs * 2, 10)  # -2 per complex function, cap at -10
     
     return max(0, score)
@@ -782,7 +521,7 @@ def _generate_tool_summary(results: dict) -> List[str]:
     tools_summary = [
         ("📁 Structure", results.get("structure", {}), lambda r: f"{r.get('total_files', 0)} files, {r.get('total_dirs', 0)} dirs"),
         ("🏗️ Architecture", results.get("architecture", {}), lambda r: f"{r.get('total_dependencies', 0)} dependencies"),
-        ("🧮 Complexity", results.get("efficiency", {}), lambda r: f"{len(r.get('high_complexity_functions', []))} high-complexity functions"),
+        ("🧮 Complexity", results.get("efficiency", {}), lambda r: f"{len(r.get('complexity', []))} high-complexity functions"),
         ("🎭 Duplication", results.get("duplication", {}), lambda r: f"{r.get('total_duplicates', 0)} duplicate blocks"),
         ("☠️ Dead Code", results.get("dead_code", {}), lambda r: f"{r.get('total_dead_code', 0)} unused items"),
         ("🧹 Cleanup", results.get("cleanup", {}), lambda r: f"{r.get('total_size_mb', 0):.1f} MB reclaimable"),
@@ -852,16 +591,18 @@ def _generate_detailed_findings(results: dict) -> List[str]:
     else: md.append("✅ Clean.")
     md.append("")
 
-    # Complexity
-    complex_funcs = results.get("efficiency", {}).get("high_complexity_functions", [])
-    md.append("**🤯 Complex Functions (Radon)**")
+    # Complexity (uses FastAuditTool format)
+    complex_funcs = results.get("efficiency", {}).get("complexity", [])
+    md.append("**🤯 Complex Functions (Ruff C90)**")
     if complex_funcs:
-        md.append("| File | Function | Rank | Score |")
-        md.append("|---|---|---|---|")
-        for f in complex_funcs:
+        md.append("| File | Line | Issue |")
+        md.append("|---|---|---|")
+        for f in complex_funcs[:10]:
             try: fname = Path(f.get('file','')).name
             except Exception: fname = f.get('file', 'unknown')
-            md.append(f"| {fname} | {f.get('function')} | {f.get('rank')} | {f.get('complexity')} |")
+            md.append(f"| {fname} | {f.get('line', '?')} | {f.get('message', '')} |")
+        if len(complex_funcs) > 10:
+            md.append(f"| ... | | +{len(complex_funcs) - 10} more |")
     else: md.append("✅ No complex functions detected.")
     md.append("")
 
@@ -1860,7 +1601,7 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
                     "test_coverage": results.get("tests", {}).get("coverage_percent", 0),
                     "duplicates": results.get("duplication", {}).get("total_duplicates", 0),
                     "dead_code": results.get("dead_code", {}).get("total_dead_code", 0),
-                    "high_complexity": len(results.get("efficiency", {}).get("high_complexity_functions", []))
+                    "high_complexity": len(results.get("efficiency", {}).get("complexity", []))
                 }
             }, indent=2)
             
@@ -1944,11 +1685,12 @@ def clear_audit_cache(path: str, tool_name: str = None) -> str:
 
 @mcp.tool()
 def run_ruff_comprehensive_check(path: str) -> str:
-    """Run comprehensive Ruff linting."""
+    """Run comprehensive Ruff linting (uses FastAuditTool)."""
     try:
         project_path = Path(path).resolve()
-        if not project_path.exists(): return json.dumps({"status": "error", "error": f"Path does not exist: {path}"})
-        result = run_ruff_comprehensive(project_path)
+        if not project_path.exists():
+            return json.dumps({"status": "error", "error": f"Path does not exist: {path}"})
+        result = run_ruff(project_path)
         return json.dumps(result, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})

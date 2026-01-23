@@ -98,17 +98,17 @@ def unused_function():
             assert "total_dead" in result
     
     def test_efficiency_tool(self, sample_code):
-        """Test Radon complexity analyzer."""
+        """Test complexity analyzer (uses FastAuditTool/Ruff)."""
         from mcp_fastmcp_server import run_efficiency
-        
+
         result = run_efficiency(sample_code)
-        
+
         assert "status" in result
         if result["status"] not in ["skipped", "error"]:
-            # Should detect complex_function
-            assert "high_complexity_functions" in result
-            # Ruff's complexity detection may differ from Radon
-            # Just verify the field exists
+            # FastAuditTool returns 'complexity' list
+            assert "complexity" in result
+            # Also has stats with complexity_count
+            assert "stats" in result
     
     def test_duplication_tool(self, sample_code):
         """Test code duplication detector."""
