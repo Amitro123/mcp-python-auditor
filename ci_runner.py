@@ -10,8 +10,11 @@ sys.path.append(str(Path(__file__).parent))
 try:
     # Import the internal logic function (not the tool wrapper)
     from mcp_fastmcp_server import _audit_pr_changes_logic
-except ImportError:
-    print("❌ Critical Error: Could not import audit logic.")
+except ImportError as e:
+    print(f"❌ Critical Error: Could not import audit logic: {e}")
+    # Print traceback to see the root cause (e.g. missing dependency)
+    import traceback
+    traceback.print_exc()
     print("Make sure you are running this from the root of the repo.")
     sys.exit(1)
 
@@ -28,11 +31,10 @@ def check_environment_sanity():
             # We try to run '--version' which is fast and harmless
             # capturing output prevents spamming the logs
             subprocess.run(
-                f"{tool} --version", 
+                [tool, "--version"],  # nosec B603 - tool names are hardcoded, not user input
                 check=True, 
                 stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
-                shell=True  # Added shell=True for Windows compatibility with venv shims
+                stderr=subprocess.PIPE
             )
         except (subprocess.CalledProcessError, FileNotFoundError):
             print(f"❌ Sanity Check Failed: '{tool}' is not working correctly.")
