@@ -1,15 +1,9 @@
 """Tests for the analyzer agent."""
 import pytest
 from pathlib import Path
-from app.agents.analyzer_agent import AnalyzerAgent
 from app.core.tool_registry import registry
 
-
-@pytest.fixture
-def analyzer(tmp_path):
-    """Create analyzer instance with temp reports dir."""
-    reports_dir = tmp_path / "reports"
-    return AnalyzerAgent(reports_dir)
+# Note: 'analyzer' fixture is defined in conftest.py
 
 
 @pytest.fixture

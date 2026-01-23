@@ -168,7 +168,7 @@ class TestsTool(BaseTool):
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=60,  # Increased from 30s to handle larger test suites (140+ tests)
                 cwd=project_path,
                 errors='replace'
             )

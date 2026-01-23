@@ -5,6 +5,13 @@ from app.core.tool_registry import registry
 from app.agents.analyzer_agent import AnalyzerAgent
 
 
+@pytest.fixture
+def analyzer(tmp_path):
+    """Create analyzer instance with temp reports dir. Shared across tests."""
+    reports_dir = tmp_path / "reports"
+    return AnalyzerAgent(reports_dir)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def setup_tools():
     """Discover and load tools before running tests."""

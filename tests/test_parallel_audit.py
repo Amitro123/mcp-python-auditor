@@ -4,14 +4,10 @@ import time
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from app.agents.analyzer_agent import AnalyzerAgent
 from app.schemas import ToolResult
 
-@pytest.fixture
-def analyzer(tmp_path):
-    """Create analyzer instance with temp reports dir."""
-    reports_dir = tmp_path / "reports"
-    return AnalyzerAgent(reports_dir)
+# Note: 'analyzer' fixture is defined in conftest.py
+
 
 @pytest.fixture
 def large_sample_project(tmp_path):

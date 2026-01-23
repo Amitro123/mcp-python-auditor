@@ -181,17 +181,39 @@ class DuplicationTool(BaseTool):
         # Only check functions not already marked as exact duplicates
         processed_hashes = set(h for h, funcs in hash_groups.items() if len(funcs) > 1)
         remaining_functions = [f for f in functions if f['hash'] not in processed_hashes and f['length'] >= 5]
-        
+
+        # OPTIMIZATION: Limit comparisons to avoid O(n²) slowdown
+        MAX_COMPARISONS = 5000  # Limit total comparisons
+        MAX_SIMILAR_DUPLICATES = 200  # Stop after finding enough duplicates
+        comparisons = 0
+
+        # Sort by length for faster length-based filtering
+        remaining_functions.sort(key=lambda f: f['length'])
+
         # Compare pairs of functions
         for i, func1 in enumerate(remaining_functions):
+            if len(duplicates) >= MAX_SIMILAR_DUPLICATES:
+                logger.info(f"Duplication: Stopping early after finding {len(duplicates)} duplicates")
+                break
+
             for func2 in remaining_functions[i + 1:]:
+                comparisons += 1
+                if comparisons > MAX_COMPARISONS:
+                    logger.info(f"Duplication: Stopping after {MAX_COMPARISONS} comparisons")
+                    break
+
+                # OPTIMIZATION: Skip if length difference > 30% (unlikely to be similar)
+                len_ratio = min(func1['length'], func2['length']) / max(func1['length'], func2['length'])
+                if len_ratio < 0.7:
+                    continue
+
                 # Skip if same file and similar names (likely overloads)
                 if func1['file'] == func2['file'] and func1['name'] == func2['name']:
                     continue
-                
+
                 # Calculate similarity
                 similarity = fuzz.ratio(func1['normalized'], func2['normalized'])
-                
+
                 if similarity >= 80:  # 80% similarity threshold
                     duplicates.append({
                         "function_name": f"{func1['name']} / {func2['name']}",
@@ -203,6 +225,9 @@ class DuplicationTool(BaseTool):
                         ],
                         "count": 2
                     })
+
+            if comparisons > MAX_COMPARISONS:
+                break
         
         # Sort by similarity (highest first)
         duplicates.sort(key=lambda x: x['similarity'], reverse=True)

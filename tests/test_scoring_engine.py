@@ -32,41 +32,19 @@ class TestScoreBreakdown:
         )
         assert breakdown.final_score == 0  # Should cap at 0, not negative
     
-    def test_grade_a_plus(self):
-        """Test A+ grade (95-100)"""
-        breakdown = ScoreBreakdown(base_score=100, security_penalty=3)
-        assert breakdown.final_score == 97
-        assert breakdown.grade == "A+"
-    
-    def test_grade_a(self):
-        """Test A grade (90-94)"""
-        breakdown = ScoreBreakdown(base_score=100, security_penalty=8)
-        assert breakdown.final_score == 92
-        assert breakdown.grade == "A"
-    
-    def test_grade_b(self):
-        """Test B grade (80-89)"""
-        breakdown = ScoreBreakdown(base_score=100, testing_penalty=15)
-        assert breakdown.final_score == 85
-        assert breakdown.grade == "B"
-    
-    def test_grade_c(self):
-        """Test C grade (70-79)"""
-        breakdown = ScoreBreakdown(base_score=100, quality_penalty=25)
-        assert breakdown.final_score == 75
-        assert breakdown.grade == "C"
-    
-    def test_grade_d(self):
-        """Test D grade (60-69)"""
-        breakdown = ScoreBreakdown(base_score=100, testing_penalty=35)
-        assert breakdown.final_score == 65
-        assert breakdown.grade == "D"
-    
-    def test_grade_f(self):
-        """Test F grade (0-59)"""
-        breakdown = ScoreBreakdown(base_score=100, security_penalty=50)
-        assert breakdown.final_score == 50
-        assert breakdown.grade == "F"
+    @pytest.mark.parametrize("penalty_kwargs,expected_score,expected_grade", [
+        ({"security_penalty": 3}, 97, "A+"),    # 95-100 = A+
+        ({"security_penalty": 8}, 92, "A"),     # 90-94 = A
+        ({"testing_penalty": 15}, 85, "B"),     # 80-89 = B
+        ({"quality_penalty": 25}, 75, "C"),     # 70-79 = C
+        ({"testing_penalty": 35}, 65, "D"),     # 60-69 = D
+        ({"security_penalty": 50}, 50, "F"),    # 0-59 = F
+    ])
+    def test_grades(self, penalty_kwargs, expected_score, expected_grade):
+        """Test grade calculation for various penalty levels."""
+        breakdown = ScoreBreakdown(base_score=100, **penalty_kwargs)
+        assert breakdown.final_score == expected_score
+        assert breakdown.grade == expected_grade
 
 
 class TestScoringEngine:
@@ -89,59 +67,25 @@ class TestScoringEngine:
         assert breakdown.testing_penalty == 0
         assert breakdown.quality_penalty == 0
     
-    def test_security_penalty_bandit(self):
-        """Test security penalty from Bandit issues"""
+    @pytest.mark.parametrize("bandit_issues,secrets_count,expected_penalty,expected_score,description", [
+        (5, 0, 25, 75, "bandit issues (5 * 5 = 25)"),
+        (10, 0, 30, 70, "bandit capped at 30"),
+        (0, 3, 30, 70, "secrets (3 * 10 = 30)"),
+        (0, 10, 40, 60, "secrets capped at 40"),
+    ])
+    def test_security_penalties(self, bandit_issues, secrets_count, expected_penalty, expected_score, description):
+        """Test security penalty calculation for Bandit and secrets."""
         audit_results = {
-            "bandit": {"total_issues": 5},  # 5 * 5 = 25 penalty
-            "secrets": {"total_secrets": 0},
+            "bandit": {"total_issues": bandit_issues},
+            "secrets": {"total_secrets": secrets_count},
             "tests": {"coverage_percent": 80},
             "dead_code": {"total_dead": 0},
             "duplication": {"duplicates": []}
         }
         
         breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.security_penalty == 25
-        assert breakdown.final_score == 75  # 100 - 25
-    
-    def test_security_penalty_capped(self):
-        """Test that Bandit penalty is capped at 30"""
-        audit_results = {
-            "bandit": {"total_issues": 10},  # Would be 50, but capped at 30
-            "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 80},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.security_penalty == 30
-    
-    def test_secrets_penalty(self):
-        """Test security penalty from secrets"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 3},  # 3 * 10 = 30 penalty
-            "tests": {"coverage_percent": 80},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.security_penalty == 30
-        assert breakdown.final_score == 70
-    
-    def test_secrets_penalty_capped(self):
-        """Test that secrets penalty is capped at 40"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 10},  # Would be 100, but capped at 40
-            "tests": {"coverage_percent": 80},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.security_penalty == 40
+        assert breakdown.security_penalty == expected_penalty, f"Failed for {description}"
+        assert breakdown.final_score == expected_score
     
     def test_combined_security_penalties(self):
         """Test that Bandit and secrets penalties combine"""
@@ -156,110 +100,44 @@ class TestScoringEngine:
         breakdown = ScoringEngine.calculate_score(audit_results)
         assert breakdown.security_penalty == 70  # 30 + 40
     
-    def test_testing_penalty_no_coverage(self):
-        """Test maximum testing penalty for 0% coverage"""
+    @pytest.mark.parametrize("coverage,expected_penalty,description", [
+        (0, 50, "no coverage (0%)"),
+        (5, 40, "critical coverage (< 10%)"),
+        (20, 30, "very low coverage (< 30%)"),
+        (40, 20, "low coverage (< 50%)"),
+        (60, 10, "moderate coverage (< 70%)"),
+        (75, 0, "good coverage (>= 70%)"),
+    ])
+    def test_testing_penalties(self, coverage, expected_penalty, description):
+        """Test testing penalty calculation for various coverage levels."""
         audit_results = {
             "bandit": {"total_issues": 0},
             "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 0},
+            "tests": {"coverage_percent": coverage},
             "dead_code": {"total_dead": 0},
             "duplication": {"duplicates": []}
         }
         
         breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.testing_penalty == 50
-        assert breakdown.final_score == 50
+        assert breakdown.testing_penalty == expected_penalty, f"Failed for {description}"
+        assert breakdown.final_score == 100 - expected_penalty
     
-    def test_testing_penalty_critical(self):
-        """Test critical coverage penalty (< 10%)"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 5},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.testing_penalty == 40
-    
-    def test_testing_penalty_very_low(self):
-        """Test very low coverage penalty (< 30%)"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 20},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.testing_penalty == 30
-    
-    def test_testing_penalty_low(self):
-        """Test low coverage penalty (< 50%)"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 40},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.testing_penalty == 20
-    
-    def test_testing_penalty_moderate(self):
-        """Test moderate coverage penalty (< 70%)"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 60},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.testing_penalty == 10
-    
-    def test_testing_no_penalty(self):
-        """Test no penalty for good coverage (>= 70%)"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 75},
-            "dead_code": {"total_dead": 0},
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.testing_penalty == 0
-    
-    def test_quality_penalty_dead_code(self):
-        """Test quality penalty from dead code"""
+    @pytest.mark.parametrize("dead_code_count,expected_penalty,description", [
+        (8, 16, "dead code (8 * 2 = 16)"),
+        (20, 20, "dead code capped at 20"),
+    ])
+    def test_quality_penalty_dead_code(self, dead_code_count, expected_penalty, description):
+        """Test quality penalty from dead code."""
         audit_results = {
             "bandit": {"total_issues": 0},
             "secrets": {"total_secrets": 0},
             "tests": {"coverage_percent": 80},
-            "dead_code": {"total_dead": 8},  # 8 * 2 = 16 penalty
+            "dead_code": {"total_dead": dead_code_count},
             "duplication": {"duplicates": []}
         }
         
         breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.quality_penalty == 16
-    
-    def test_quality_penalty_dead_code_capped(self):
-        """Test that dead code penalty is capped at 20"""
-        audit_results = {
-            "bandit": {"total_issues": 0},
-            "secrets": {"total_secrets": 0},
-            "tests": {"coverage_percent": 80},
-            "dead_code": {"total_dead": 20},  # Would be 40, but capped at 20
-            "duplication": {"duplicates": []}
-        }
-        
-        breakdown = ScoringEngine.calculate_score(audit_results)
-        assert breakdown.quality_penalty == 20
+        assert breakdown.quality_penalty == expected_penalty, f"Failed for {description}"
     
     def test_quality_penalty_duplication(self):
         """Test quality penalty from code duplication"""

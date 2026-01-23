@@ -253,61 +253,52 @@ def test_hello():
 
 class TestRemoteAuditCleanup:
     """Test temporary directory cleanup."""
-    
-    def test_cleanup_on_success(self, tmp_path):
-        """Test that temp directory is cleaned up on success."""
+
+    @staticmethod
+    def _create_temp_dir_tracker():
+        """Create a temp dir tracker to avoid code duplication in tests."""
         temp_dirs_created = []
-        
+
         def track_temp_dir(*args, **kwargs):
             temp_dir = tempfile.mkdtemp()
             temp_dirs_created.append(temp_dir)
-            
+
             class MockContext:
                 def __enter__(self):
                     return temp_dir
+
                 def __exit__(self, *args):
-                    # Simulate cleanup
                     import shutil
                     if Path(temp_dir).exists():
                         shutil.rmtree(temp_dir)
-            
+
             return MockContext()
-        
+
+        return temp_dirs_created, track_temp_dir
+
+    def test_cleanup_on_success(self, tmp_path):
+        """Test that temp directory is cleaned up on success."""
+        temp_dirs_created, track_temp_dir = self._create_temp_dir_tracker()
+
         with patch('tempfile.TemporaryDirectory', side_effect=track_temp_dir):
             with patch('subprocess.run') as mock_run:
                 mock_run.return_value = Mock(returncode=0, stdout="", stderr="")
-                
-                # Create a Python file in the temp dir
+
                 with patch('pathlib.Path.glob') as mock_glob:
                     mock_glob.return_value = [Path("test.py")]
-                    
+
                     with patch('mcp_fastmcp_server.StructureTool'):
                         from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
-                        
+
                         audit_remote_repo("https://github.com/user/repo.git", "main")
-                        
-                        # Verify temp directory was cleaned up
+
                         for temp_dir in temp_dirs_created:
                             assert not Path(temp_dir).exists(), "Temp directory should be cleaned up"
-    
+
     def test_cleanup_on_error(self):
         """Test that temp directory is cleaned up even on error."""
-        temp_dirs_created = []
-        
-        def track_temp_dir(*args, **kwargs):
-            temp_dir = tempfile.mkdtemp()
-            temp_dirs_created.append(temp_dir)
-            
-            class MockContext:
-                def __enter__(self):
-                    return temp_dir
-                def __exit__(self, *args):
-                    import shutil
-                    if Path(temp_dir).exists():
-                        shutil.rmtree(temp_dir)
-            
-            return MockContext()
-        
+        temp_dirs_created, track_temp_dir = self._create_temp_dir_tracker()
+
         with patch('tempfile.TemporaryDirectory', side_effect=track_temp_dir):
             with patch('subprocess.run') as mock_run:
                 # Simulate clone failure

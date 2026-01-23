@@ -11,9 +11,9 @@
 ### Score Breakdown
 | Component | Penalty | Details |
 |-----------|---------|---------|
-| 🔒 Security | -{{ security_penalty }} | {{ security.total_issues }} issues, {{ secrets.total_secrets }} secrets |
-| ✅ Testing | -{{ testing_penalty }} | {{ tests.coverage_percent }}% coverage |
-| 🧹 Quality | -{{ quality_penalty }} | {{ deadcode.total_items }} dead code items |
+| 🔒 Security | {{ "-" ~ security_penalty if security_penalty > 0 else "0" }} | {{ security.total_issues }} issues, {{ secrets.total_secrets }} secrets |
+| ✅ Testing | {{ "-" ~ testing_penalty if testing_penalty > 0 else "0" }} | {{ tests.coverage_percent }}% coverage |
+| 🧹 Quality | {{ "-" ~ quality_penalty if quality_penalty > 0 else "0" }} | {{ deadcode.total_items }} dead code items |
 | **Final** | **{{ score }}** | Grade: {{ grade }} |
 
 ---
@@ -245,24 +245,30 @@ Architecture analysis not available
 
 **Based on the calculated score of {{ score }}/100:**
 
+{# Build recommendations list with dynamic numbering #}
+{% set ns = namespace(num=1) %}
 {% if testing_penalty >= 30 %}
-1. **🔴 CRITICAL - Test Coverage**: {{ coverage_severity.recommendation }}
+{{ ns.num }}. **🔴 CRITICAL - Test Coverage**: {{ coverage_severity.recommendation }}
+{% set ns.num = ns.num + 1 %}
 {% endif %}
-
 {% if security_penalty >= 20 %}
-2. **🔴 CRITICAL - Security**: Address {{ security.total_issues + secrets.total_secrets }} security findings immediately
+{{ ns.num }}. **🔴 CRITICAL - Security**: Address {{ security.total_issues + secrets.total_secrets }} security findings immediately
+{% set ns.num = ns.num + 1 %}
 {% endif %}
-
 {% if quality_penalty >= 15 %}
-3. **🟡 HIGH - Code Quality**: Clean up {{ deadcode.total_items }} dead code items
+{{ ns.num }}. **🟡 HIGH - Code Quality**: Clean up {{ deadcode.total_items }} dead code items
+{% set ns.num = ns.num + 1 %}
 {% endif %}
-
+{% if duplication.total_duplicates > 50 %}
+{{ ns.num }}. **🟡 MEDIUM - Duplication**: Consider refactoring {{ duplication.total_duplicates }} duplicate code blocks
+{% set ns.num = ns.num + 1 %}
+{% endif %}
 {% if score < 70 %}
-4. **Overall**: Current grade ({{ grade }}) indicates significant technical debt. Prioritize above items.
+{{ ns.num }}. **Overall**: Current grade ({{ grade }}) indicates significant technical debt. Prioritize above items.
 {% elif score < 90 %}
-4. **Overall**: Good foundation ({{ grade }}). Focus on incremental improvements.
+{{ ns.num }}. **Overall**: Good foundation ({{ grade }}). Focus on incremental improvements.
 {% else %}
-4. **Overall**: Excellent codebase ({{ grade }}). Maintain current standards.
+{{ ns.num }}. **Overall**: Excellent codebase ({{ grade }}). Maintain current standards.
 {% endif %}
 
 ---

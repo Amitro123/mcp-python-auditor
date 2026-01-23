@@ -58,7 +58,9 @@ class FastAuditTool(BaseTool):
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=60  # 1 minute max
+                timeout=60,  # 1 minute max
+                encoding='utf-8',
+                errors='replace'  # Handle encoding issues on Windows
             )
             
             if result.returncode != 0 and result.returncode != 1:
@@ -69,7 +71,7 @@ class FastAuditTool(BaseTool):
                 return {"error": f"Ruff execution failed: {result.stderr}"}
             
             # Parse JSON output
-            if not result.stdout.strip():
+            if not result.stdout or not result.stdout.strip():
                 logger.info("FastAudit: No issues found!")
                 return self._empty_result()
             

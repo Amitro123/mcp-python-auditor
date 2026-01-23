@@ -35,6 +35,20 @@ COVERAGE_THRESHOLD_MODERATE = 70
 COVERAGE_THRESHOLD_GOOD = 80
 
 
+def _format_duration(seconds: float) -> str:
+    """Format duration as human-readable string (e.g., '4m 2s' instead of '242.31s')."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    elif seconds < 3600:
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{mins}m {secs}s"
+    else:
+        hours = int(seconds // 3600)
+        mins = int((seconds % 3600) // 60)
+        return f"{hours}h {mins}m"
+
+
 def _extract_tool_data(raw_results: dict[str, Any], key: str) -> dict[str, Any]:
     """
     Extract tool data handling both flat and nested structures.
@@ -100,7 +114,7 @@ def build_report_context(
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
         "date": timestamp.strftime("%Y-%m-%d"),
         "time": timestamp.strftime("%H:%M:%S"),
-        "duration": f"{duration:.2f}s" if duration else "N/A",  # ADDED: formatted duration
+        "duration": _format_duration(duration) if duration else "N/A",  # Human-readable duration
 
         # === PENALTIES (for score breakdown table) ===
         "security_penalty": penalties["security"],
@@ -434,9 +448,12 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
     )
 
     warning = data.get('warning', '')
+    coverage_percent = data.get('coverage_percent', 0)
 
     # Validation: Test files found but no results
-    if total_files > 0 and total_executed == 0:
+    # FIXED: Only show warning if BOTH no tests reported AND coverage is 0
+    # If coverage > 0, tests definitely ran even if passed/failed counters are 0
+    if total_files > 0 and total_executed == 0 and coverage_percent == 0:
         msg = "⚠️ Test files found but no tests executed."
         warning = f"{warning} {msg}" if warning else msg
 
@@ -450,7 +467,6 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
         total_files = raw_breakdown.get('total_files', 0)
     
     # Validation: Coverage reported but no test files
-    coverage_percent = data.get('coverage_percent', 0)
     if coverage_percent > 0 and total_files == 0:
         msg = "⚠️ Coverage reported but no test files detected."
         warning = f"{warning} {msg}" if warning else msg

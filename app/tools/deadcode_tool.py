@@ -55,8 +55,15 @@ class DeadcodeTool(BaseTool):
         # STEP 2: GUARD CLAUSE - Extension Filter
         if file_list:
             file_list = filter_python_files(file_list)
+            # OPTIMIZATION: Skip test files (they often have intentional "unused" fixtures)
+            file_list = [f for f in file_list if '/tests/' not in f.replace('\\', '/') and not f.replace('\\', '/').startswith('tests/')]
             if not validate_file_list(file_list, "Vulture"):
                 return {"error": "Invalid file list (contains excluded paths or empty)"}
+            # OPTIMIZATION: Limit files to avoid long execution times
+            MAX_FILES = 100
+            if len(file_list) > MAX_FILES:
+                logger.warning(f"Vulture: Limiting scan to {MAX_FILES} files (from {len(file_list)})")
+                file_list = file_list[:MAX_FILES]
             logger.info(f"✅ Vulture: Analyzing {len(file_list)} Python files (explicit list)")
         
         try:
@@ -75,7 +82,7 @@ class DeadcodeTool(BaseTool):
                         files=file_list,
                         chunk_size=50,
                         merge_json=False,  # Vulture outputs text, not JSON
-                        timeout=120
+                        timeout=30  # Reduced from 120s for faster execution
                     )
                 else:
                     # Fallback: Run on project path with exclusions (Vulture handles recursion)
@@ -90,7 +97,7 @@ class DeadcodeTool(BaseTool):
                         cwd=project_path,
                         capture_output=True,
                         text=True,
-                        timeout=120,
+                        timeout=60,  # Reduced from 120s
                         errors='replace'
                     )
                 

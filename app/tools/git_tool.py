@@ -73,63 +73,40 @@ class GitTool(BaseTool):
             logger.error(f"Git analysis failed: {e}")
             return {"error": str(e)}
 
-    def _get_commit_hash(self, path: Path) -> str:
-        """Get short commit hash."""
+    def _run_git_log_format(self, path: Path, format_str: str, default: str = "") -> str:
+        """Run git log with a format string - eliminates duplication."""
         try:
             result = subprocess.run(
-                ["git", "log", "-1", "--pretty=format:%h"],
+                ["git", "log", "-1", f"--pretty=format:{format_str}"],  # nosec B607 - git is a trusted system command
                 capture_output=True,
                 text=True,
                 timeout=5,
                 cwd=path
             )
-            return result.stdout.strip() if result.returncode == 0 else ""
+            return result.stdout.strip() if result.returncode == 0 else default
         except Exception:
-            return ""
+            return default
+
+    def _get_commit_hash(self, path: Path) -> str:
+        """Get short commit hash."""
+        return self._run_git_log_format(path, "%h")
 
     def _get_commit_author(self, path: Path) -> str:
         """Get commit author."""
-        try:
-            result = subprocess.run(
-                ["git", "log", "-1", "--pretty=format:%an"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=path
-            )
-            return result.stdout.strip() if result.returncode == 0 else ""
-        except Exception:
-            return ""
+        return self._run_git_log_format(path, "%an")
 
     def _get_commit_date(self, path: Path) -> str:
         """Get commit date (relative)."""
-        try:
-            result = subprocess.run(
-                ["git", "log", "-1", "--pretty=format:%ar"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=path
-            )
-            return result.stdout.strip() if result.returncode == 0 else ""
-        except Exception:
-            return ""
+        return self._run_git_log_format(path, "%ar")
 
     def _get_days_since_commit(self, path: Path) -> int:
         """Get days since last commit."""
         try:
-            result = subprocess.run(
-                ["git", "log", "-1", "--pretty=format:%ct"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=path
-            )
-            if result.returncode == 0:
+            timestamp_str = self._run_git_log_format(path, "%ct")
+            if timestamp_str:
                 import time
-                timestamp = int(result.stdout.strip())
-                days = int((time.time() - timestamp) / 86400)
-                return days
+                timestamp = int(timestamp_str)
+                return int((time.time() - timestamp) / 86400)
             return 0
         except Exception:
             return 0
@@ -138,7 +115,7 @@ class GitTool(BaseTool):
         """Get current branch name."""
         try:
             result = subprocess.run(
-                ["git", "branch", "--show-current"],
+                ["git", "branch", "--show-current"],  # nosec B607 - git is a trusted system command
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -154,7 +131,7 @@ class GitTool(BaseTool):
         """Check if there are uncommitted changes."""
         try:
             result = subprocess.run(
-                ["git", "status", "--porcelain"],
+                ["git", "status", "--porcelain"],  # nosec B607 - git is a trusted system command
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -168,7 +145,7 @@ class GitTool(BaseTool):
         """Get git diff --stat output."""
         try:
             result = subprocess.run(
-                ["git", "diff", "--stat"],
+                ["git", "diff", "--stat"],  # nosec B607 - git is a trusted system command
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -192,7 +169,7 @@ class GitTool(BaseTool):
         """Get git log -1 output."""
         try:
             result = subprocess.run(
-                ["git", "log", "-1", "--pretty=format:%h - %an, %ar : %s"],
+                ["git", "log", "-1", "--pretty=format:%h - %an, %ar : %s"],  # nosec B607 - git is a trusted system command
                 capture_output=True,
                 text=True,
                 timeout=10,
