@@ -45,15 +45,15 @@ def unused_function():
     def test_bandit_tool(self, sample_code):
         """Test Bandit security scanner."""
         from mcp_fastmcp_server import run_bandit
-        
+
         result = run_bandit(sample_code)
-        
-        if result["status"] != "skipped":
+
+        if result.get("status") != "skipped":
             assert "tool" in result
-            assert result["tool"] == "ruff"  # Now using Ruff for security checks
+            assert result["tool"] == "bandit"
             # Should detect MD5 usage as security issue
-            if result["status"] == "issues_found":
-                assert result["total_issues"] > 0
+            if result.get("status") == "issues_found":
+                assert result.get("total_issues", 0) > 0
     
     def test_secrets_tool(self, sample_code):
         """Test detect-secrets scanner."""
@@ -77,12 +77,14 @@ def unused_function():
     def test_structure_tool(self, sample_code):
         """Test structure analyzer."""
         from mcp_fastmcp_server import run_structure
-        
+
         result = run_structure(sample_code)
-        
-        assert result["status"] == "analyzed"
-        assert result["total_py_files"] >= 1
-        assert "directory_tree" in result
+
+        # StructureTool returns: tree, file_counts, total_files, total_dirs
+        assert "tree" in result
+        py_count = result.get("file_counts", {}).get(".py", 0)
+        assert py_count >= 1
+        assert result.get("total_files", 0) >= 1
     
     def test_dead_code_tool(self, sample_code):
         """Test Vulture dead code detector."""
@@ -134,11 +136,13 @@ def unused_function():
     def test_git_tool(self, sample_code):
         """Test git info analyzer."""
         from mcp_fastmcp_server import run_git_info
-        
+
         result = run_git_info(sample_code)
-        
-        # Non-git repo should return specific status
-        assert result["status"] in ["not_a_repo", "analyzed", "skipped", "error"]
+
+        # GitTool returns has_git (bool) instead of status
+        # Non-git repo should return has_git=False
+        assert "has_git" in result
+        assert result["has_git"] is False  # sample_code is not a git repo
     
     def test_architecture_tool(self, sample_code):
         """Test architecture visualizer."""
@@ -153,12 +157,13 @@ def unused_function():
     def test_tests_coverage_tool(self, sample_code):
         """Test pytest coverage analyzer."""
         from mcp_fastmcp_server import run_tests_coverage
-        
+
         result = run_tests_coverage(sample_code)
-        
-        assert "tool" in result
-        assert result["tool"] == "pytest"
-        # No tests in sample, should skip or show 0 coverage
+
+        # TestsTool returns: coverage_percent, tests_passed, tests_failed, total_test_files, etc.
+        assert "coverage_percent" in result
+        assert "total_test_files" in result
+        # No tests in sample, should show 0 coverage
     
     def test_pip_audit_tool(self, sample_code):
         """Test pip-audit vulnerability checker."""
@@ -178,19 +183,18 @@ class TestToolErrorHandling:
     def test_tool_with_invalid_path(self):
         """Tools should handle invalid paths gracefully."""
         from mcp_fastmcp_server import run_structure
-        
+
         result = run_structure(Path("/nonexistent/path"))
-        # Should return error status, not crash
-        assert result["status"] == "error"
+        # StructureTool returns {"error": "..."}  for invalid paths
+        assert "error" in result
     
     def test_tool_timeout_handling(self):
         """Tools should respect timeout limits."""
-        # This is verified by the timeout parameters in each tool
-        from mcp_fastmcp_server import run_ruff as run_tool_with_timeout
-        
-        # Bandit has 60s timeout - verify it's set
+        # Timeout is now handled by Tool classes (FastAuditTool, TestsTool, etc.)
+        from app.tools.fast_audit_tool import FastAuditTool
+
         import inspect
-        source = inspect.getsource(run_tool_with_timeout)
+        source = inspect.getsource(FastAuditTool.analyze)
         assert "timeout" in source
     
     def test_missing_tool_graceful_failure(self):

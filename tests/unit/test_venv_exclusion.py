@@ -48,16 +48,16 @@ def duplicate_function():
     def test_structure_excludes_venv(self, project_with_venv):
         """Structure tool should only count project files, not .venv files."""
         from mcp_fastmcp_server import run_structure
-        
+
         result = run_structure(project_with_venv)
-        
+
         # Should only count 2 Python files (main.py, utils.py)
         # NOT the 3+ files in .venv
-        assert result["status"] == "analyzed"
-        assert result["total_py_files"] <= 3, f"Found {result['total_py_files']} files, expected <=3 (excluding .venv)"
-        
+        py_count = result.get("file_counts", {}).get(".py", 0)
+        assert py_count <= 3, f"Found {py_count} files, expected <=3 (excluding .venv)"
+
         # Verify .venv is not in the tree
-        tree_str = result.get("directory_tree", "")
+        tree_str = result.get("tree", "")
         assert ".venv" not in tree_str, ".venv should not appear in directory tree"
     
     def test_duplication_excludes_venv(self, project_with_venv):
@@ -102,23 +102,24 @@ def duplicate_function():
         """Test that exclusion works regardless of case (Windows compatibility)."""
         tmpdir = tempfile.mkdtemp()
         project = Path(tmpdir)
-        
+
         try:
             # Create project file
             (project / "main.py").write_text("def main(): pass")
-            
+
             # Create venv with various casings
             venv_dir = project / venv_name
             venv_dir.mkdir()
             (venv_dir / "package.py").write_text("# Should be excluded")
-            
+
             from mcp_fastmcp_server import run_structure
             result = run_structure(project)
-            
+
             # Should only count main.py, not package.py in venv
-            assert result["total_py_files"] == 1, \
-                f"venv '{venv_name}' not excluded, found {result['total_py_files']} files"
-        
+            py_count = result.get("file_counts", {}).get(".py", 0)
+            assert py_count == 1, \
+                f"venv '{venv_name}' not excluded, found {py_count} files"
+
         finally:
             shutil.rmtree(tmpdir)
 
@@ -139,23 +140,24 @@ class TestOtherIgnoredDirectories:
         """Each ignored directory should be skipped during scanning."""
         tmpdir = tempfile.mkdtemp()
         project = Path(tmpdir)
-        
+
         try:
             # Create project file
             (project / "main.py").write_text("def main(): pass")
-            
+
             # Create ignored directory with file
             ignored_path = project / ignored_dir
             ignored_path.mkdir(parents=True)
             (ignored_path / "noise.py").write_text("# Should be excluded")
-            
+
             from mcp_fastmcp_server import run_structure
             result = run_structure(project)
-            
+
             # Should only count main.py
-            assert result["total_py_files"] == 1, \
-                f"Directory '{ignored_dir}' not excluded, found {result['total_py_files']} files"
-        
+            py_count = result.get("file_counts", {}).get(".py", 0)
+            assert py_count == 1, \
+                f"Directory '{ignored_dir}' not excluded, found {py_count} files"
+
         finally:
             shutil.rmtree(tmpdir)
 

@@ -439,44 +439,9 @@ def run_secrets(path: Path) -> dict:
 
 
 def run_ruff(path: Path) -> dict:
-    """Run Ruff linter on the project."""
-    try:
-        # Use cwd pattern for Windows compatibility
-        target_path = Path(path).resolve()
-        cmd = [
-            sys.executable, "-m", "ruff", "check", ".",
-            "--output-format", "json",
-            "--exclude", "node_modules,venv,.venv,.git,__pycache__,frontend/test-results"
-        ]
-        try:
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                timeout=60, 
-                cwd=str(target_path),
-                stdin=subprocess.DEVNULL
-            )
-        except subprocess.TimeoutExpired:
-            return {"tool": "ruff", "status": "error", "error": "Timeout (>60s)", "issues": [], "total_issues": 0}
-        
-        try:
-            issues = json.loads(result.stdout) if result.stdout else []
-        except json.JSONDecodeError:
-            issues = []
-        
-        return {
-            "tool": "ruff",
-            "status": "issues_found" if issues else "clean",
-            "total_issues": len(issues) if issues else 0,
-            "issues": (issues or [])[:30]
-        }
-    except FileNotFoundError:
-        return {"tool": "ruff", "status": "skipped", "error": "Ruff not installed", "issues": [], "total_issues": 0}
-    except subprocess.TimeoutExpired:
-        return {"tool": "ruff", "status": "error", "error": "Timeout (>120s)", "issues": [], "total_issues": 0}
-    except Exception as e:
-        return {"tool": "ruff", "status": "error", "error": str(e), "issues": [], "total_issues": 0}
+    """Run Ruff linter using FastAuditTool."""
+    tool = FastAuditTool()
+    return tool.analyze(Path(path))
 
 
 def run_pip_audit(path: Path) -> dict:
@@ -529,10 +494,10 @@ def run_pip_audit(path: Path) -> dict:
         return {"tool": "pip-audit", "status": "error", "error": str(e), "vulnerabilities": [], "total_vulnerabilities": 0}
 
 
-async def run_structure(target: str) -> dict:
+def run_structure(target: str) -> dict:
     """Analyze project structure using StructureTool."""
     tool = StructureTool()
-    return await asyncio.to_thread(tool.analyze, Path(target))
+    return tool.analyze(Path(target))
 
 
 def run_dead_code(path: Path) -> dict:
@@ -586,47 +551,9 @@ def run_duplication(path: Path) -> dict:
 
 
 def run_git_info(path: Path) -> dict:
-    """Get git repository information."""
-    try:
-        kwargs = {"capture_output": True, "text": True, "cwd": str(path), "timeout": 15, "stdin": subprocess.DEVNULL}
-        
-        # Check if git repo
-        result = subprocess.run(["git", "rev-parse", "--git-dir"], **kwargs)  # nosec B607
-        if result.returncode != 0:
-            return {"tool": "git", "status": "not_a_repo", "message": "Not a git repository"}
-        
-        # Get last commit
-        log_result = subprocess.run(["git", "log", "-1", "--format=%H|%s|%an|%ar"], **kwargs)  # nosec B607
-        last_commit = {}
-        if log_result.stdout.strip():
-            parts = log_result.stdout.strip().split('|')
-            if len(parts) >= 4:
-                last_commit = {
-                    "hash": parts[0][:8],
-                    "message": parts[1][:50],
-                    "author": parts[2],
-                    "when": parts[3]
-                }
-        
-        # Get status
-        status_result = subprocess.run(["git", "status", "-s"], **kwargs)  # nosec B607
-        changes = len([l for l in status_result.stdout.strip().split('\n') if l.strip()])
-        
-        # Get branch
-        branch_result = subprocess.run(["git", "branch", "--show-current"], **kwargs)  # nosec B607
-        branch = branch_result.stdout.strip()
-        
-        return {
-            "tool": "git",
-            "status": "analyzed",
-            "branch": branch,
-            "uncommitted_changes": changes,
-            "last_commit": last_commit
-        }
-    except FileNotFoundError:
-        return {"tool": "git", "status": "skipped", "error": "Git not installed"}
-    except Exception as e:
-        return {"tool": "git", "status": "error", "error": str(e)}
+    """Get git repository information using GitTool."""
+    tool = GitTool()
+    return tool.analyze(Path(path))
 
 
 def run_cleanup_scan(path: Path) -> dict:
@@ -672,191 +599,10 @@ def run_cleanup_scan(path: Path) -> dict:
         return {"tool": "cleanup", "status": "error", "error": str(e)}
 
 
-def _find_test_python_exe(target_path: Path) -> str:
-    """Finds the appropriate Python executable for running tests."""
-    venv_dirs = [".venv", "venv", "env"]
-    python_exe = sys.executable  # Fallback to system python
-
-    for venv_name in venv_dirs:
-        venv_path = target_path / venv_name
-        if venv_path.exists():
-            # Windows vs Unix
-            if sys.platform == "win32":
-                candidate = venv_path / "Scripts" / "python.exe"
-            else:
-                candidate = venv_path / "bin" / "python"
-            if candidate.exists():
-                python_exe = str(candidate)
-                break
-    return python_exe
-
-def _parse_pytest_output(output: str) -> tuple[int, int, int]:
-    """Parses pytest stdout for coverage and test counts."""
-    # Parse coverage percentage (look for "TOTAL ... XX%")
-    coverage_percent = 0
-    coverage_match = re.search(r'TOTAL\s+\d+\s+\d+\s+(\d+)%', output)
-    if coverage_match:
-        coverage_percent = int(coverage_match.group(1))
-
-    # Count test results
-    tests_passed = 0
-    tests_failed = 0
-    tests_match = re.search(r'(\d+) passed', output)
-    if tests_match:
-        tests_passed = int(tests_match.group(1))
-    fail_match = re.search(r'(\d+) failed', output)
-    if fail_match:
-        tests_failed = int(fail_match.group(1))
-
-    return coverage_percent, tests_passed, tests_failed
-
-def _categorize_test_files(target_path: Path) -> dict:
-    """Categorize test files into unit, integration, e2e."""
-    unit_tests = list(target_path.glob("**/test_*.py")) + list(target_path.glob("**/tests/unit/**/*.py"))
-    integration_tests = list(target_path.glob("**/tests/integration/**/*.py")) + list(target_path.glob("**/test_integration_*.py"))
-    e2e_tests = list(target_path.glob("**/tests/e2e/**/*.py")) + list(target_path.glob("**/test_e2e_*.py"))
-
-    all_test_files = set()
-    unit_count = 0
-    integration_count = 0
-    e2e_count = 0
-
-    for f in unit_tests:
-        if str(f) not in all_test_files and 'integration' not in str(f).lower() and 'e2e' not in str(f).lower():
-            unit_count += 1
-            all_test_files.add(str(f))
-
-    for f in integration_tests:
-        if str(f) not in all_test_files:
-            integration_count += 1
-            all_test_files.add(str(f))
-
-    for f in e2e_tests:
-        if str(f) not in all_test_files:
-            e2e_count += 1
-            all_test_files.add(str(f))
-
-    return {
-        "unit": unit_count,
-        "integration": integration_count,
-        "e2e": e2e_count,
-        "total_files": len(all_test_files)
-    }
-
-
-def _collect_test_names(project_path: Path, python_exe: str) -> list:
-    """Collect all test names using pytest --collect-only."""
-    try:
-        cmd = [
-            python_exe, '-m', 'pytest', '--collect-only', '-q', '--color=no',
-            '--ignore=node_modules', '--ignore=venv', '--ignore=.venv',
-            '--ignore=dist', '--ignore=build', '--ignore=.git',
-        ]
-
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60,  # Increased from 30s for larger projects
-            cwd=project_path,
-            errors='replace'
-        )
-
-        # Parse test count from output (e.g., "142 tests collected")
-        test_list = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            # Look for test IDs like "tests/test_api.py::test_root_endpoint"
-            if '::test_' in line or '::Test' in line:
-                test_list.append(line)
-
-        # If no detailed list, try to get count from summary
-        if not test_list:
-            import re
-            match = re.search(r'(\d+)\s+tests?\s+collected', result.stdout + result.stderr)
-            if match:
-                count = int(match.group(1))
-                # Create placeholder list with count
-                test_list = [f"test_{i}" for i in range(count)]
-
-        return test_list
-
-    except Exception as e:
-        log(f"Failed to collect test names: {e}")
-        return []
-
-
 def run_tests_coverage(path: Path) -> dict:
-    """Run pytest with coverage to analyze test suite."""
-    try:
-        target_path = Path(path).resolve()
-        python_exe = _find_test_python_exe(target_path)
-        
-        # Check if tests directory exists
-        tests_dir = target_path / "tests"
-        if not tests_dir.exists():
-            # Try finding any test files
-            test_files = list(target_path.glob("**/test_*.py"))
-            if not test_files:
-                return {
-                    "tool": "pytest",
-                    "status": "skipped",
-                    "error": "No tests directory or test files found",
-                    "coverage_percent": 0,
-                    "tests_found": 0
-                }
-        
-        # Run pytest with coverage
-        cmd = [
-            python_exe, "-m", "pytest",
-            "--cov=.",
-            "--cov-report=term-missing",
-            "-q",  # Quiet mode
-            "--ignore=node_modules",
-            "--ignore=venv",
-            "--ignore=.venv",
-            "--ignore=.git",
-            "--ignore=frontend/test-results",
-            "."
-        ]
-        
-        try:
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                timeout=300, 
-                cwd=str(target_path),
-                stdin=subprocess.DEVNULL
-            )
-        except subprocess.TimeoutExpired:
-            return {"tool": "pytest", "status": "error", "error": "Timeout (>300s)", "coverage_percent": 0}
-        
-        output = result.stdout + result.stderr
-        coverage_percent, tests_passed, tests_failed = _parse_pytest_output(output)
-        test_breakdown = _categorize_test_files(target_path)
-
-        # Collect test names for actual test count
-        test_list = _collect_test_names(target_path, python_exe)
-
-        return {
-            "tool": "pytest",
-            "status": "success" if result.returncode in [0, 1] else "error",
-            "coverage_percent": coverage_percent,
-            "tests_passed": tests_passed,
-            "tests_failed": tests_failed,
-            "test_breakdown": test_breakdown,
-            "test_list": test_list,
-            "total_test_files": test_breakdown.get("total_files", 0),
-            "python_exe": python_exe
-        }
-        
-    except subprocess.TimeoutExpired:
-        return {"tool": "pytest", "status": "error", "error": "Timeout (>300s)", "coverage_percent": 0}
-    except FileNotFoundError:
-        return {"tool": "pytest", "status": "skipped", "error": "pytest not installed", "coverage_percent": 0}
-    except Exception as e:
-        return {"tool": "pytest", "status": "error", "error": str(e), "coverage_percent": 0}
+    """Analyze tests using TestsTool."""
+    tool = TestsTool()
+    return tool.analyze(Path(path))
 
 
 def _parse_imports_ast(py_files: List[Path], root_path: Path) -> Tuple[Set[str], List[Tuple[str, str]], Dict[str, Set[str]]]:
@@ -1185,15 +931,20 @@ def generate_full_markdown_report(job_id: str, duration: str, results: dict, pat
     md.append(f"**Passed:** {tests.get('tests_passed', 0)} ✅ | **Failed:** {tests.get('tests_failed', 0)} ❌")
     md.append("")
     
-    # Git Info
+    # Git Info (uses GitTool format)
     git_info = results.get("git_info", {})
     md.append("### 📝 Recent Changes")
-    if git_info.get("status") in ["analyzed", "clean"]:
+    if git_info.get("has_git"):
         md.append(f"**Branch:** `{git_info.get('branch', 'unknown')}`")
-        last_commit = git_info.get("last_commit", {})
-        if last_commit:
-            md.append(f"**Last Commit:** {last_commit.get('hash', '')[:8]} - {last_commit.get('message', '')}")
-    else: md.append("ℹ️ Not a git repository")
+        if git_info.get("last_commit"):
+            md.append(f"**Last Commit:** {git_info.get('last_commit')}")
+        days = git_info.get("days_since_commit", 0)
+        if days > 30:
+            md.append(f"⚠️ **Stale:** No commits in {days} days")
+        if git_info.get("has_uncommitted_changes"):
+            md.append("⚠️ **Uncommitted changes detected**")
+    else:
+        md.append("ℹ️ Not a git repository")
     md.append("")
     
     md.append("\n---\n*Generated by Python Auditor MCP v2.1*")
@@ -1283,7 +1034,7 @@ async def run_audit_background(job_id: str, path: str):
         async def run_structure_cached():
             cached = cache_mgr.get_cached_result("structure", ["**/*.py"])
             if cached: return cached
-            result = await run_structure(target)
+            result = await asyncio.to_thread(run_structure, target)
             cache_mgr.save_result("structure", result, ["**/*.py"])
             return result
         

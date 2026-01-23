@@ -54,10 +54,11 @@ class StructureTool(BaseTool):
             # Get all items, sorted (directories first, then files)
             items = sorted(path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
             
-            # Filter using centralized blacklist from BaseTool
+            # Filter using centralized blacklist from BaseTool (case-insensitive for Windows)
+            ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
             items = [
                 item for item in items
-                if item.name not in self.IGNORED_DIRECTORIES and not item.name.startswith('.')
+                if item.name.lower() not in ignored_lower and not item.name.startswith('.')
             ]
             
             for i, item in enumerate(items):
@@ -108,25 +109,27 @@ class StructureTool(BaseTool):
     def _count_files_by_extension(self, path: Path) -> Dict[str, int]:
         """Count files by extension."""
         counts = defaultdict(int)
-        
+        ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
+
         for item in path.rglob('*'):
             if item.is_file():
-                # Use centralized blacklist from BaseTool
-                if any(p in item.parts for p in self.IGNORED_DIRECTORIES):
+                # Use centralized blacklist from BaseTool (case-insensitive)
+                if any(p.lower() in ignored_lower for p in item.parts):
                     continue
-                
+
                 ext = item.suffix if item.suffix else '[no extension]'
                 counts[ext] += 1
-        
+
         return dict(counts)
     
     def _count_directories(self, path: Path) -> int:
         """Count total directories."""
         count = 0
+        ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
         for item in path.rglob('*'):
             if item.is_dir():
-                # Use centralized blacklist from BaseTool
-                if any(p in item.parts for p in self.IGNORED_DIRECTORIES):
+                # Use centralized blacklist from BaseTool (case-insensitive)
+                if any(p.lower() in ignored_lower for p in item.parts):
                     continue
                 count += 1
         return count
