@@ -235,3 +235,63 @@ class FastAuditTool(BaseTool):
             },
             'by_severity': {},
         }
+
+    def analyze_files(self, project_path: Path, files: List[str]) -> Dict[str, Any]:
+        """
+        Run Ruff audit on specific files.
+
+        Args:
+            project_path: Path to the project directory (used as cwd)
+            files: List of file paths (relative to project_path)
+
+        Returns:
+            Categorized findings dictionary
+        """
+        if not files:
+            return self._empty_result()
+
+        if not self.validate_path(project_path):
+            return {"error": "Invalid path"}
+
+        try:
+            logger.info(f"FastAudit: Running Ruff check on {len(files)} files...")
+
+            cmd = [
+                sys.executable, '-m', 'ruff', 'check',
+            ] + files + [
+                '--output-format', 'json',
+                '--exit-zero'
+            ]
+
+            result = subprocess.run(
+                cmd,
+                cwd=project_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                encoding='utf-8',
+                errors='replace'
+            )
+
+            if result.returncode != 0 and result.returncode != 1:
+                logger.error(f"Ruff failed with code {result.returncode}: {result.stderr}")
+                return {"error": f"Ruff execution failed: {result.stderr}"}
+
+            if not result.stdout or not result.stdout.strip():
+                logger.info("FastAudit: No issues found in specified files!")
+                return self._empty_result()
+
+            try:
+                findings = json.loads(result.stdout)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse Ruff output: {e}")
+                return {"error": f"Failed to parse Ruff output: {e}"}
+
+            return self._categorize_findings(findings)
+
+        except subprocess.TimeoutExpired:
+            logger.error("Ruff execution timed out after 60 seconds")
+            return {"error": "Ruff execution timed out"}
+        except Exception as e:
+            logger.error(f"FastAudit file analysis failed: {e}", exc_info=True)
+            return {"error": str(e)}

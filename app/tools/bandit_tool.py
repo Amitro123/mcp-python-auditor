@@ -111,6 +111,88 @@ class BanditTool(BaseTool):
                 "total_issues": 0
             }
 
+    def analyze_files(self, project_path: Path, files: List[str]) -> Dict[str, Any]:
+        """
+        Run Bandit security analysis on specific files.
+
+        Args:
+            project_path: Path to the project directory (used as cwd)
+            files: List of file paths (relative to project_path)
+
+        Returns:
+            Dictionary with security issues found
+        """
+        if not files:
+            return {"tool": "bandit", "status": "clean", "total_issues": 0, "issues": []}
+
+        if not self.validate_path(project_path):
+            return {"tool": "bandit", "status": "error", "error": "Invalid path", "issues": [], "total_issues": 0}
+
+        try:
+            target_path = Path(project_path).resolve()
+
+            cmd = [
+                sys.executable, "-m", "bandit",
+                "-c", "pyproject.toml",
+            ] + files + [
+                "-f", "json",
+                "--exit-zero"
+            ]
+
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.DEFAULT_TIMEOUT,
+                    cwd=str(target_path),
+                    stdin=subprocess.DEVNULL
+                )
+            except subprocess.TimeoutExpired:
+                return {
+                    "tool": "bandit",
+                    "status": "error",
+                    "error": f"Timeout (>{self.DEFAULT_TIMEOUT}s)",
+                    "issues": [],
+                    "total_issues": 0
+                }
+            except FileNotFoundError:
+                return {
+                    "tool": "bandit",
+                    "status": "skipped",
+                    "error": "Bandit not installed",
+                    "issues": [],
+                    "total_issues": 0
+                }
+
+            bandit_data = {}
+            if result.stdout.strip():
+                try:
+                    bandit_data = json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse Bandit JSON output")
+
+            issues = bandit_data.get("results", [])
+            severity_counts = self._count_by_severity(issues)
+
+            return {
+                "tool": "bandit",
+                "status": "issues_found" if issues else "clean",
+                "total_issues": len(issues),
+                "issues": issues,
+                "severity_counts": severity_counts
+            }
+
+        except Exception as e:
+            logger.error(f"Bandit file analysis failed: {e}")
+            return {
+                "tool": "bandit",
+                "status": "error",
+                "error": str(e),
+                "issues": [],
+                "total_issues": 0
+            }
+
     def _count_by_severity(self, issues: List[Dict[str, Any]]) -> Dict[str, int]:
         """Count issues by severity level."""
         counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}

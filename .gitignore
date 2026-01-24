@@ -116,3 +116,6 @@ SELF_AUDIT_REPORT.md
 
 # Audit cache
 .audit_cache/
+
+# Audit history cache
+.audit_index/

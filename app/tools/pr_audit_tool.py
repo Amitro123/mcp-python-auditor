@@ -1,19 +1,29 @@
-"""PR Audit Tool - Fast delta-based security and quality checks for PRs."""
-import json
-import subprocess
-import sys
+"""PR Audit Tool - Fast delta-based security and quality checks for PRs.
+
+Uses BanditTool and FastAuditTool for analysis to avoid code duplication.
+"""
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 from app.core.base_tool import BaseTool
+from app.tools.bandit_tool import BanditTool
+from app.tools.fast_audit_tool import FastAuditTool
 import logging
 
 logger = logging.getLogger(__name__)
 
 
 class PRAuditTool(BaseTool):
-    """Fast audit of changed files for PR review."""
+    """Fast audit of changed files for PR review.
 
-    DEFAULT_TIMEOUT = 60  # seconds per tool
+    Composes BanditTool and FastAuditTool for analysis instead of
+    duplicating subprocess logic.
+    """
+
+    def __init__(self):
+        """Initialize with composed tools."""
+        super().__init__()
+        self._bandit = BanditTool()
+        self._ruff = FastAuditTool()
 
     @property
     def description(self) -> str:
@@ -43,10 +53,14 @@ class PRAuditTool(BaseTool):
 
         target = Path(project_path).resolve()
 
-        # Run scans on changed files only
-        bandit_result = self._run_bandit(target, changed_files)
-        ruff_result = self._run_ruff(target, changed_files)
-        complexity_result = self._run_complexity(target, changed_files)
+        # Use composed tools for analysis (single source of truth)
+        bandit_raw = self._bandit.analyze_files(target, changed_files)
+        ruff_raw = self._ruff.analyze_files(target, changed_files)
+
+        # Transform results to PR audit format
+        bandit_result = self._transform_bandit_result(bandit_raw)
+        ruff_result = self._transform_ruff_result(ruff_raw)
+        complexity_result = self._extract_complexity_from_ruff(ruff_raw)
 
         # Calculate score
         score = self._calculate_score(bandit_result, ruff_result, complexity_result)
@@ -64,89 +78,82 @@ class PRAuditTool(BaseTool):
             "complexity": complexity_result
         }
 
-    def _run_bandit(self, target: Path, files: List[str]) -> Dict[str, Any]:
-        """Run Bandit security scan on specified files."""
-        try:
-            cmd = [sys.executable, "-m", "bandit", "-c", "pyproject.toml"] + files + ["-f", "json", "--exit-zero"]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.DEFAULT_TIMEOUT,
-                cwd=str(target), stdin=subprocess.DEVNULL
-            )
-            try:
-                data = json.loads(result.stdout) if result.stdout else {}
-            except json.JSONDecodeError:
-                data = {}
-            if not isinstance(data, dict):
-                data = {}
-            issues = [
-                {
-                    "severity": issue.get("issue_severity"),
-                    "file": issue.get("filename"),
-                    "line": issue.get("line_number"),
-                    "description": issue.get("issue_text"),
-                    "code": issue.get("test_id")
-                }
-                for issue in data.get("results", [])
-            ]
-            return {"total_issues": len(issues), "issues": issues[:10]}
-        except subprocess.TimeoutExpired:
-            return {"error": "Timeout", "total_issues": 0, "issues": []}
-        except Exception as e:
-            logger.error(f"Bandit scan failed: {e}")
-            return {"error": str(e), "total_issues": 0, "issues": []}
+    def _transform_bandit_result(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Transform BanditTool result to PR audit format."""
+        if raw.get("error"):
+            return {"error": raw["error"], "total_issues": 0, "issues": []}
 
-    def _run_ruff(self, target: Path, files: List[str]) -> Dict[str, Any]:
-        """Run Ruff linting on specified files."""
-        try:
-            cmd = [sys.executable, "-m", "ruff", "check"] + files + ["--output-format", "json"]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.DEFAULT_TIMEOUT,
-                cwd=str(target), stdin=subprocess.DEVNULL
-            )
-            try:
-                data = json.loads(result.stdout) if result.stdout else []
-            except json.JSONDecodeError:
-                data = []
-            # Ruff returns array, but handle dict gracefully (for mocked tests)
-            issues = data if isinstance(data, list) else []
-            return {"total_issues": len(issues), "issues": issues[:10]}
-        except subprocess.TimeoutExpired:
-            return {"error": "Timeout", "total_issues": 0, "issues": []}
-        except Exception as e:
-            logger.error(f"Ruff scan failed: {e}")
-            return {"error": str(e), "total_issues": 0, "issues": []}
+        issues = [
+            {
+                "severity": issue.get("issue_severity"),
+                "file": issue.get("filename"),
+                "line": issue.get("line_number"),
+                "description": issue.get("issue_text"),
+                "code": issue.get("test_id")
+            }
+            for issue in raw.get("issues", [])
+        ]
+        return {"total_issues": len(issues), "issues": issues[:10]}
 
-    def _run_complexity(self, target: Path, files: List[str]) -> Dict[str, Any]:
-        """Run complexity analysis on specified files."""
-        try:
-            cmd = [sys.executable, "-m", "radon", "cc"] + files + ["-a", "-j"]
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.DEFAULT_TIMEOUT,
-                cwd=str(target), stdin=subprocess.DEVNULL
-            )
-            try:
-                data = json.loads(result.stdout) if result.stdout else {}
-            except json.JSONDecodeError:
-                data = {}
-            if not isinstance(data, dict):
-                data = {}
-            high_complexity = []
-            for file_path, functions in data.items():
-                if isinstance(functions, list):
-                    for func in functions:
-                        if func.get('rank', 'A') in ['C', 'D', 'E', 'F']:
-                            high_complexity.append({
-                                "file": Path(file_path).name,
-                                "function": func.get('name', ''),
-                                "complexity": func.get('complexity', 0),
-                                "rank": func.get('rank', '')
-                            })
-            return {"total_high_complexity": len(high_complexity), "functions": high_complexity[:10]}
-        except subprocess.TimeoutExpired:
-            return {"error": "Timeout", "total_high_complexity": 0, "functions": []}
-        except Exception as e:
-            logger.error(f"Complexity scan failed: {e}")
-            return {"error": str(e), "total_high_complexity": 0, "functions": []}
+    def _transform_ruff_result(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Transform FastAuditTool result to PR audit format."""
+        if raw.get("error"):
+            return {"error": raw["error"], "total_issues": 0, "issues": []}
+
+        # Collect all non-complexity issues
+        all_issues = []
+        for category in ["security", "quality", "style", "imports", "performance"]:
+            all_issues.extend(raw.get(category, []))
+
+        # Transform to expected format
+        issues = [
+            {
+                "filename": issue.get("file", ""),
+                "code": issue.get("code", ""),
+                "message": issue.get("message", ""),
+                "location": {"row": issue.get("line", 0), "column": issue.get("column", 0)}
+            }
+            for issue in all_issues
+        ]
+        return {"total_issues": len(issues), "issues": issues[:10]}
+
+    def _extract_complexity_from_ruff(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract complexity findings from FastAuditTool result."""
+        if raw.get("error"):
+            return {"error": raw["error"], "total_high_complexity": 0, "functions": []}
+
+        complexity_issues = raw.get("complexity", [])
+        functions = [
+            {
+                "file": Path(issue.get("file", "")).name,
+                "function": issue.get("message", "").split("'")[1] if "'" in issue.get("message", "") else "unknown",
+                "complexity": self._parse_complexity_from_message(issue.get("message", "")),
+                "rank": self._complexity_to_rank(self._parse_complexity_from_message(issue.get("message", "")))
+            }
+            for issue in complexity_issues
+        ]
+        return {"total_high_complexity": len(functions), "functions": functions[:10]}
+
+    def _parse_complexity_from_message(self, message: str) -> int:
+        """Parse complexity value from Ruff C90x message."""
+        import re
+        match = re.search(r'complexity of (\d+)', message)
+        return int(match.group(1)) if match else 0
+
+    def _complexity_to_rank(self, complexity: int) -> str:
+        """Convert complexity score to letter rank."""
+        if complexity <= 5:
+            return "A"
+        elif complexity <= 10:
+            return "B"
+        elif complexity <= 20:
+            return "C"
+        elif complexity <= 30:
+            return "D"
+        elif complexity <= 40:
+            return "E"
+        else:
+            return "F"
 
     def _calculate_score(
         self, bandit: Dict[str, Any], ruff: Dict[str, Any], complexity: Dict[str, Any]

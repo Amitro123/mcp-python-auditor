@@ -298,5 +298,210 @@ class ReportGeneratorV2:
             logger.error(f"❌ Integrity validation failed: {e}")
 
 
+    def generate_html_report(
+        self,
+        report_id: str,
+        project_path: str,
+        score: int,
+        tool_results: Dict[str, Any],
+        timestamp: datetime,
+        scanned_files: List[str] = None
+    ) -> str:
+        """
+        Generate an HTML audit report with styling.
+
+        Args:
+            report_id: Unique report identifier
+            project_path: Path to the project being audited
+            score: Overall audit score (0-100) - will be recalculated
+            tool_results: Raw results from all audit tools
+            timestamp: Report generation timestamp
+            scanned_files: Optional list of files that were scanned
+
+        Returns:
+            Path to the generated HTML report file
+        """
+        try:
+            import markdown
+
+            # First generate the markdown report
+            md_report_path = self.generate_report(
+                report_id=report_id,
+                project_path=project_path,
+                score=score,
+                tool_results=tool_results,
+                timestamp=timestamp,
+                scanned_files=scanned_files
+            )
+
+            # Read the markdown content
+            with open(md_report_path, 'r', encoding='utf-8') as f:
+                md_content = f.read()
+
+            # Convert to HTML
+            html_body = markdown.markdown(
+                md_content,
+                extensions=['tables', 'fenced_code', 'toc']
+            )
+
+            # Calculate score for styling
+            score_breakdown = ScoringEngine.calculate_score(tool_results)
+            score = score_breakdown.final_score
+            grade = score_breakdown.grade
+
+            # Determine score color
+            if score >= 90:
+                score_color = "#22c55e"  # green
+            elif score >= 70:
+                score_color = "#f59e0b"  # amber
+            elif score >= 50:
+                score_color = "#f97316"  # orange
+            else:
+                score_color = "#ef4444"  # red
+
+            # Wrap in HTML template
+            html_content = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Report - {Path(project_path).name}</title>
+    <style>
+        :root {{
+            --primary: #3b82f6;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+        }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            padding: 2rem;
+        }}
+        .container {{ max-width: 1000px; margin: 0 auto; }}
+        .header {{
+            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+            color: white;
+            padding: 2rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        .score-badge {{
+            background: {score_color};
+            color: white;
+            font-size: 2.5rem;
+            font-weight: bold;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }}
+        .grade {{ font-size: 1rem; margin-top: 0.25rem; }}
+        .content {{
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }}
+        h1, h2, h3 {{ color: var(--text); margin: 1.5rem 0 1rem; }}
+        h1 {{ font-size: 1.75rem; }}
+        h2 {{ font-size: 1.5rem; border-bottom: 2px solid var(--primary); padding-bottom: 0.5rem; }}
+        h3 {{ font-size: 1.25rem; }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }}
+        th, td {{
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }}
+        th {{ background: var(--bg); font-weight: 600; }}
+        tr:hover {{ background: var(--bg); }}
+        code {{
+            background: var(--bg);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9em;
+        }}
+        pre {{
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+        }}
+        pre code {{ background: none; color: inherit; }}
+        ul, ol {{ margin: 1rem 0; padding-left: 2rem; }}
+        li {{ margin: 0.5rem 0; }}
+        .footer {{
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }}
+        @media (max-width: 768px) {{
+            body {{ padding: 1rem; }}
+            .header {{ flex-direction: column; text-align: center; gap: 1rem; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Python Audit Report</h1>
+                <p>{Path(project_path).name}</p>
+                <p style="opacity: 0.8; font-size: 0.9rem;">{timestamp.strftime("%Y-%m-%d %H:%M:%S")}</p>
+            </div>
+            <div class="score-badge">
+                {score}
+                <div class="grade">{grade}</div>
+            </div>
+        </div>
+        <div class="content">
+            {html_body}
+        </div>
+        <div class="footer">
+            Generated by Python Auditor MCP Server
+        </div>
+    </div>
+</body>
+</html>'''
+
+            # Write HTML file
+            html_path = self.reports_dir / f"{report_id}.html"
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
+            logger.info(f"HTML report generated: {html_path}")
+            return str(html_path)
+
+        except ImportError:
+            logger.warning("markdown package not installed, falling back to markdown-only")
+            return self.generate_report(
+                report_id, project_path, score, tool_results, timestamp, scanned_files
+            )
+        except Exception as e:
+            logger.error(f"HTML report generation failed: {e}", exc_info=True)
+            raise
+
+
 # Backward compatibility: Keep old class name as alias
 ReportGenerator = ReportGeneratorV2

@@ -241,13 +241,45 @@ class TestsTool(BaseTool):
 
             python_cmd = str(venv_python)
 
+            # Detect source directories for coverage
+            # Use pyproject.toml config if available, otherwise detect common patterns
+            source_dirs = []
+
+            # Check for pyproject.toml coverage config first
+            pyproject = project_path / 'pyproject.toml'
+            if pyproject.exists():
+                # Let pyproject.toml handle source config via --cov-config
+                # Just use a simple --cov=. and let the config filter
+                source_dirs = ['.']
+            else:
+                # Fallback: detect common source directories
+                if (project_path / 'app').is_dir():
+                    source_dirs.append('app')
+                if (project_path / 'src').is_dir():
+                    source_dirs.append('src')
+                if not source_dirs:
+                    source_dirs = ['.']
+
+            # Build coverage args
+            cov_args = []
+            for src in source_dirs:
+                cov_args.extend(['--cov', src])
+
+            # Determine test directory - prefer tests/ if it exists
+            test_dir = project_path / 'tests'
+            if not test_dir.is_dir():
+                test_dir = project_path / 'test'
+            if not test_dir.is_dir():
+                test_dir = project_path  # Fallback to root
+
             # Command to run tests AND coverage
             cmd = [
                 python_cmd,
                 '-m', 'pytest',
-                str(project_path),
-                '--cov=.',
+                str(test_dir),  # Run from tests/ directory, not project root
+                *cov_args,
                 '--cov-report=term-missing',
+                '--cov-config=pyproject.toml',  # Use project config for exclusions
                 '-q',
                 '--color=no',
                 '--ignore=node_modules',
@@ -259,7 +291,7 @@ class TestsTool(BaseTool):
                 '--ignore=frontend',
                 '--ignore=playwright-report',
                 '--ignore=test-results',
-                '--ignore=test_results.txt'
+                '--ignore=*.txt',  # Ignore text files
             ]
 
             logger.info(f"Running test & coverage command: {' '.join(cmd)}")
@@ -278,48 +310,39 @@ class TestsTool(BaseTool):
             # ============================================================
             # 1. Parse Test Results (Passed/Failed/Skipped)
             # ============================================================
-            lines = run_result.stdout.strip().splitlines()
+            # Search entire output (stdout + stderr) for summary line
+            # Format: "=== 172 passed, 1 skipped, 7 warnings in 76.93s ==="
+
             summary_found = False
 
-            for line in reversed(lines[-20:]):
-                if (
-                    line.startswith('=') and line.endswith('=') and
-                    ('passed' in line or 'failed' in line or 'skipped' in line or 'no tests ran' in line)
-                ):
-                    p = re.search(r'(\d+) passed', line)
-                    f = re.search(r'(\d+) failed', line)
-                    s = re.search(r'(\d+) skipped', line)
+            # Search all lines in combined output
+            for line in output.splitlines():
+                line = line.strip()
+                # Look for pytest summary line (contains === and test counts)
+                if '=' in line and ('passed' in line or 'failed' in line or 'error' in line):
+                    p = re.search(r'(\d+)\s*passed', line)
+                    f = re.search(r'(\d+)\s*failed', line)
+                    s = re.search(r'(\d+)\s*skipped', line)
+                    e = re.search(r'(\d+)\s*error', line)
 
                     if p:
                         result_dict["tests_passed"] = int(p.group(1))
+                        summary_found = True
                     if f:
                         result_dict["tests_failed"] = int(f.group(1))
+                        summary_found = True
                     if s:
                         result_dict["tests_skipped"] = int(s.group(1))
+                    if e:
+                        result_dict["tests_failed"] += int(e.group(1))
+                        summary_found = True
 
-                    summary_found = True
-                    logger.debug(f"Found test summary line: {line}")
-                    break
+                    if summary_found:
+                        logger.debug(f"Found test summary: {line}")
+                        break
 
             if not summary_found:
-                logger.debug("Summary line not found in stdout tail, searching combined output")
-                lines = output.strip().splitlines()
-                for line in reversed(lines[-20:]):
-                    if (
-                        line.startswith('=') and line.endswith('=') and
-                        ('passed' in line or 'failed' in line or 'skipped' in line)
-                    ):
-                        p = re.search(r'(\d+) passed', line)
-                        f = re.search(r'(\d+) failed', line)
-                        s = re.search(r'(\d+) skipped', line)
-
-                        if p:
-                            result_dict["tests_passed"] = int(p.group(1))
-                        if f:
-                            result_dict["tests_failed"] = int(f.group(1))
-                        if s:
-                            result_dict["tests_skipped"] = int(s.group(1))
-                        break
+                logger.warning(f"Could not find test summary in output. Last 200 chars: {output[-200:]}")
 
             # ============================================================
             # 2. Parse Coverage - ROBUST MULTI-FORMAT DETECTION

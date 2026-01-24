@@ -8,6 +8,8 @@ from typing import Dict, Any, Callable, List, Optional
 
 from app.core.cache_manager import CacheManager
 from app.core.report_generator_v2 import ReportGeneratorV2
+from app.core.scoring_engine import ScoringEngine
+from app.core.trend_analyzer import TrendAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +154,8 @@ class AuditOrchestrator:
     def generate_report(
         self,
         job_id: str,
-        result_dict: Dict[str, Any]
+        result_dict: Dict[str, Any],
+        record_trend: bool = True
     ) -> Path:
         """
         Generate a report from audit results.
@@ -160,17 +163,32 @@ class AuditOrchestrator:
         Args:
             job_id: Unique identifier for this audit
             result_dict: Dictionary with all tool results
+            record_trend: If True, record this audit in trend history
 
         Returns:
             Path to the generated report file
         """
         self._log(f"Generating Markdown report with Jinja2...")
 
+        # Calculate score for trend recording
+        score_breakdown = ScoringEngine.calculate_score(result_dict)
+        score = score_breakdown.final_score
+        grade = score_breakdown.grade
+
+        # Record trend if enabled
+        if record_trend:
+            try:
+                trend_analyzer = TrendAnalyzer(self.project_path)
+                trend_analyzer.record_audit(result_dict, score, grade)
+                self._log(f"Recorded audit in trend history: score={score}, grade={grade}")
+            except Exception as e:
+                self._log(f"Warning: Failed to record trend: {e}")
+
         generator = ReportGeneratorV2(self.reports_dir)
         report_path = generator.generate_report(
             report_id=job_id,
             project_path=str(self.project_path),
-            score=0,  # Calculated internally by ScoringEngine
+            score=score,
             tool_results=result_dict,
             timestamp=datetime.datetime.now()
         )
@@ -219,4 +237,39 @@ def create_default_tool_runners(target: Path) -> Dict[str, Callable[[Path], Dict
         "tests": lambda p: TestsTool().analyze(p),
         "typing": lambda p: TypingTool().analyze(p),
         "gitignore": lambda p: GitignoreTool().analyze(p),
+    }
+
+
+def create_default_tool_instances() -> Dict[str, Any]:
+    """
+    Create the default set of tool instances for incremental audits.
+
+    Returns:
+        Dictionary mapping tool names to tool instances or callables
+    """
+    from app.tools.structure_tool import StructureTool
+    from app.tools.architecture_tool import ArchitectureTool
+    from app.tools.typing_tool import TypingTool
+    from app.tools.duplication_tool import DuplicationTool
+    from app.tools.deadcode_tool import DeadcodeTool
+    from app.tools.fast_audit_tool import FastAuditTool
+    from app.tools.secrets_tool import SecretsTool
+    from app.tools.tests_tool import TestsTool
+    from app.tools.gitignore_tool import GitignoreTool
+    from app.tools.git_tool import GitTool
+    from app.tools.bandit_tool import BanditTool
+
+    return {
+        "structure": StructureTool(),
+        "architecture": ArchitectureTool(),
+        "typing": TypingTool(),
+        "duplication": DuplicationTool(),
+        "deadcode": DeadcodeTool(),
+        "efficiency": FastAuditTool(),
+        "secrets": SecretsTool(),
+        "tests": TestsTool(),
+        "gitignore": GitignoreTool(),
+        "git": GitTool(),
+        "bandit": BanditTool(),
+        "quality": FastAuditTool(),
     }

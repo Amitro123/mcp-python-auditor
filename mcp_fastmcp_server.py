@@ -728,190 +728,39 @@ def audit_remote_repo(repo_url: str, branch: str = "main") -> str:
     return _audit_remote_repo_logic(repo_url, branch)
 
 
-def _clone_repo_step(repo_url: str, branch: str, temp_path: Path) -> dict:
-    """Clones the repository and returns status/error dict if failed, else None."""
-    if not shutil.which("git"):
-         return {
-             "status": "error",
-             "error": "Git not installed",
-             "suggestion": "Install git command line tool"
-         }
-
-    clone_cmd = ["git", "clone", "--depth", "1", "-b", branch, repo_url, str(temp_path)]
-    try:
-        result = subprocess.run(
-            clone_cmd, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL
-        )
-        if result.returncode != 0:
-            err = result.stderr
-            suggestion = "Check the repository URL and network connection."
-            if "not found" in err.lower():
-                suggestion = "Check the URL and ensure the repository exists."
-            elif "authentication" in err.lower() or "private" in err.lower():
-                suggestion = "This tool supports public repositories. Check credentials for private ones."
-            elif f"branch '{branch}'" in err.lower() or "did not match any" in err.lower():
-                suggestion = f"Check the branch name. '{branch}' may not exist."
-
-            return {
-                "status": "error",
-                "error": f"Git clone failed: {err}",
-                "suggestion": suggestion
-            }
-    except subprocess.TimeoutExpired:
-        return {
-            "status": "error",
-            "error": "Clone operation timeout (>300s)",
-            "suggestion": "Repository might be too large or network is slow."
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": f"Clone error: {e}",
-            "suggestion": "Unexpected error during clone."
-        }
-
-    return None # Success
-
 def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
-    """Internal logic for remote audit."""
-    import tempfile
-    
+    """Internal logic for remote audit using RemoteAuditOrchestrator."""
+    from app.core.remote_audit_orchestrator import RemoteAuditOrchestrator
+
     log(f"[REMOTE-AUDIT] Starting remote audit: {repo_url} (branch: {branch})")
-    
-    if not repo_url.startswith(("http://", "https://", "git@")):
-        return json.dumps({
-            "status": "error",
-            "error": "Invalid repository URL.",
-            "suggestion": "Use http://, https://, or git@ URL"
-        }, indent=2)
-    
-    try:
-        with tempfile.TemporaryDirectory(prefix="audit_remote_") as temp_dir:
-            temp_path = Path(temp_dir)
-            
-            # Step 1: Clone
-            clone_error = _clone_repo_step(repo_url, branch, temp_path)
-            if clone_error:
-                return json.dumps(clone_error, indent=2)
-            
-            # Step 2: Audit
-            # Check for Python files
-            py_files = list(temp_path.glob("**/*.py"))
-            if not py_files:
-                 return json.dumps({
-                     "status": "warning",
-                     "message": "No Python files found",
-                     "repo_url": repo_url,
-                     "branch": branch
-                 }, indent=2)
 
-            # Create job ID for this audit
-            job_id = f"remote_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            start_time = time.time()
-            
-            tools = {
-                "structure": StructureTool(),
-                "architecture": ArchitectureTool(),
-                "duplication": DuplicationTool(),
-                "deadcode": DeadcodeTool(),
-                "secrets": SecretsTool(),
-                "tests": TestsTool(),
-                "git_info": GitTool(),
-            }
+    orchestrator = RemoteAuditOrchestrator(REPORTS_DIR)
+    orchestrator.set_log_callback(lambda msg: log(f"[REMOTE-AUDIT] {msg}"))
 
-            results = {}
-            for key, tool in tools.items():
-                try: results[key] = tool.analyze(temp_path)
-                except Exception as e: results[key] = {"error": str(e), "status": "error"}
-            
-            results["bandit"] = run_bandit(temp_path)
-            results["quality"] = FastAuditTool().analyze(temp_path)
-            results["ruff"] = results["quality"] # alias
-            results["efficiency"] = results["quality"] # alias for complexity
-
-            duration_seconds = time.time() - start_time
-            results["duration_seconds"] = duration_seconds
-
-            # Use ScoringEngine for score calculation
-            score_breakdown = ScoringEngine.calculate_score(results)
-            score = score_breakdown.final_score
-
-            # Generate report using ReportGeneratorV2
-            generator = ReportGeneratorV2(REPORTS_DIR)
-            report_path = generator.generate_report(
-                report_id=job_id,
-                project_path=str(temp_path),
-                score=score,
-                tool_results=results,
-                timestamp=datetime.datetime.now()
-            )
-            report_md = Path(report_path).read_text(encoding='utf-8')
-
-            return json.dumps({
-                "status": "success",
-                "repo_url": repo_url,
-                "branch": branch,
-                "score": score,
-                "duration": f"{duration_seconds:.1f}s",
-                "files_analyzed": len(py_files),
-                "report_path": str(report_path),
-                "report": report_md,
-                "summary": {
-                    "security_issues": results.get("bandit", {}).get("total_issues", 0),
-                    "secrets_found": results.get("secrets", {}).get("total_findings", 0),
-                    "test_coverage": results.get("tests", {}).get("coverage_percent", 0),
-                    "duplicates": results.get("duplication", {}).get("total_duplicates", 0),
-                    "dead_code": results.get("dead_code", {}).get("total_dead_code", 0),
-                    "high_complexity": len(results.get("efficiency", {}).get("complexity", []))
-                }
-            }, indent=2)
-            
-    except Exception as e:
-        return json.dumps({"status": "error", "error": f"Unexpected error: {str(e)}", "suggestion": "Check system logs."}, indent=2)
+    # Run async orchestrator
+    result = asyncio.run(orchestrator.audit_repository(repo_url, branch))
+    return json.dumps(result, indent=2)
 
 
 @mcp.tool()
 def generate_full_report(path: str) -> str:
-    """Runs ALL tools and generates a comprehensive Markdown report file."""
-    start_time = time.time()
+    """Runs ALL tools and generates a comprehensive Markdown report file using AuditOrchestrator."""
+    from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners
+
     target_path = Path(path).resolve()
-
-    # Run all tools explicitly to catch errors
-    results = {}
-    tools = {
-        "structure": StructureTool(), "architecture": ArchitectureTool(), "typing": TypingTool(),
-        "duplication": DuplicationTool(), "deadcode": DeadcodeTool(), "efficiency": FastAuditTool(),
-        "secrets": SecretsTool(), "tests": TestsTool(), "gitignore": GitignoreTool(), "git": GitTool(),
-    }
-    for key, tool in tools.items():
-        tool_start = time.time()
-        try:
-            results[key] = tool.analyze(target_path)
-            results[key]["duration_s"] = round(time.time() - tool_start, 2)
-        except Exception as e:
-            results[key] = {"error": str(e), "duration_s": round(time.time() - tool_start, 2)}
-
-    tool_start = time.time()
-    results["bandit"] = run_bandit(target_path)
-    results["bandit"]["duration_s"] = round(time.time() - tool_start, 2)
-
-    tool_start = time.time()
-    results["quality"] = FastAuditTool().analyze(target_path)
-    results["quality"]["duration_s"] = round(time.time() - tool_start, 2)
-
-    # Add total duration
-    results["duration_seconds"] = time.time() - start_time
-
-    # Generate Report (score calculated internally by ScoringEngine)
     report_id = f"audit__{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    generator = ReportGeneratorV2(REPORTS_DIR)
-    report_path = generator.generate_report(
-        report_id=report_id,
-        project_path=str(target_path),
-        score=0,  # Deprecated: calculated by ScoringEngine
-        tool_results=results,
-        timestamp=datetime.datetime.now()
-    )
+
+    # Use AuditOrchestrator for consistent execution
+    orchestrator = AuditOrchestrator(target_path, REPORTS_DIR)
+    orchestrator.set_log_callback(log)
+
+    tool_runners = create_default_tool_runners(target_path)
+
+    # Run synchronously (wrap async)
+    result_dict = asyncio.run(orchestrator.run_full_audit(tool_runners, report_id))
+
+    # Generate report
+    report_path = orchestrator.generate_report(report_id, result_dict)
 
     return f"Report generated successfully at: {report_path}"
 
@@ -961,50 +810,39 @@ async def start_incremental_audit(
 ) -> str:
     """
     Smart audit that only analyzes changed files.
-    
+
     First run = full audit. Subsequent runs = incremental (90%+ faster).
-    
+
     Args:
         project_path: Path to the Python project to audit
         force_full: If True, force a full audit even if cache exists
-        
+
     Returns:
         JSON string with audit results and performance metrics
-        
+
     Example:
         First run: Analyzes all 100 files in 60s
         Second run (3 files changed): Analyzes 3 files in 5s (saved 55s!)
     """
+    from app.core.audit_orchestrator import create_default_tool_instances
+
     try:
         target_path = Path(project_path).resolve()
-        
+
         if not target_path.exists():
             return json.dumps({
                 "status": "error",
                 "error": f"Path does not exist: {project_path}"
             }, indent=2)
-        
+
         log(f"[INCREMENTAL] Starting audit for: {target_path} (force_full={force_full})")
-        
+
         # Initialize incremental engine
         engine = IncrementalEngine(target_path)
-        
-        # Prepare tools (same as regular audit)
-        tools = {
-            "structure": StructureTool(),
-            "architecture": ArchitectureTool(),
-            "typing": TypingTool(),
-            "duplication": DuplicationTool(),
-            "deadcode": DeadcodeTool(),
-            "efficiency": FastAuditTool(),
-            "secrets": SecretsTool(),
-            "tests": TestsTool(),
-            "gitignore": GitignoreTool(),
-            "git": GitTool(),
-            "bandit": lambda p: run_bandit(p),
-            "quality": FastAuditTool(),
-        }
-        
+
+        # Use shared tool instances (single source of truth)
+        tools = create_default_tool_instances()
+
         # Run incremental audit
         result = await engine.run_audit(tools, force_full=force_full)
 
@@ -1098,6 +936,158 @@ def clear_incremental_cache(project_path: str, tool_name: str = None) -> str:
             "status": "success",
             "message": f"Cleared {cleared} cache file(s)",
             "tool": tool_name if tool_name else "all"
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({"status": "error", "error": str(e)})
+
+
+@mcp.tool()
+def generate_ci_pipeline(path: str, platform: str = "github", score_threshold: int = 70) -> str:
+    """
+    Generate CI/CD pipeline configuration for automated code audits.
+
+    Creates platform-specific pipeline files that:
+    - Run security scans (Bandit) on every PR
+    - Run linting checks (Ruff) with auto-fix
+    - Run tests with coverage reporting
+    - Calculate audit score and comment on PR
+    - Block merge if score is below threshold
+
+    Args:
+        path: Path to the project root
+        platform: CI platform - 'github', 'gitlab', or 'bitbucket'
+        score_threshold: Minimum score to pass CI (default: 70)
+
+    Returns:
+        JSON with paths to generated files
+
+    Example:
+        generate_ci_pipeline("/my/project", "github", 80)
+        -> Creates .github/workflows/audit.yml, .pre-commit-config.yaml, PR template
+    """
+    from app.core.ci_generator import CIGenerator
+
+    try:
+        target_path = Path(path).resolve()
+
+        if not target_path.exists():
+            return json.dumps({
+                "status": "error",
+                "error": f"Path does not exist: {path}"
+            }, indent=2)
+
+        generator = CIGenerator(target_path, score_threshold=score_threshold)
+        results = generator.generate_all(platform)
+
+        return json.dumps({
+            "status": "success",
+            "platform": platform,
+            "score_threshold": score_threshold,
+            "files_created": results,
+            "next_steps": [
+                f"Commit the generated files to your repository",
+                f"For pre-commit: run 'pip install pre-commit && pre-commit install'",
+                f"Push to trigger the first audit run"
+            ]
+        }, indent=2)
+
+    except ValueError as e:
+        return json.dumps({
+            "status": "error",
+            "error": str(e),
+            "supported_platforms": ["github", "gitlab", "bitbucket"]
+        }, indent=2)
+    except Exception as e:
+        return json.dumps({
+            "status": "error",
+            "error": str(e)
+        }, indent=2)
+
+
+@mcp.tool()
+def generate_html_report(path: str) -> str:
+    """
+    Generate a styled HTML audit report for browser viewing.
+
+    Runs all audit tools and produces an HTML report with:
+    - Visual score badge
+    - Styled tables and code blocks
+    - Responsive design for mobile
+    - Dark-themed code snippets
+
+    Args:
+        path: Path to the Python project to audit
+
+    Returns:
+        JSON with status and path to the HTML report file
+    """
+    from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners
+
+    try:
+        target_path = Path(path).resolve()
+        report_id = f"audit__{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        # Use AuditOrchestrator
+        orchestrator = AuditOrchestrator(target_path, REPORTS_DIR)
+        orchestrator.set_log_callback(log)
+
+        tool_runners = create_default_tool_runners(target_path)
+        result_dict = asyncio.run(orchestrator.run_full_audit(tool_runners, report_id))
+
+        # Generate HTML report
+        generator = ReportGeneratorV2(REPORTS_DIR)
+        html_path = generator.generate_html_report(
+            report_id=report_id,
+            project_path=str(target_path),
+            score=0,
+            tool_results=result_dict,
+            timestamp=datetime.datetime.now()
+        )
+
+        return json.dumps({
+            "status": "success",
+            "html_path": html_path,
+            "message": f"HTML report generated at: {html_path}"
+        }, indent=2)
+
+    except Exception as e:
+        return json.dumps({
+            "status": "error",
+            "error": str(e)
+        }, indent=2)
+
+
+@mcp.tool()
+def get_audit_trends(project_path: str, limit: int = 10) -> str:
+    """
+    Get historical audit trends for a project.
+
+    Shows score progression, coverage changes, and improvement suggestions
+    based on past audits. Useful for tracking code quality over time.
+
+    Args:
+        project_path: Path to the project
+        limit: Maximum number of historical audits to include
+
+    Returns:
+        JSON with trend summary, sparklines, and suggestions
+    """
+    from app.core.trend_analyzer import TrendAnalyzer
+
+    try:
+        target_path = Path(project_path).resolve()
+        analyzer = TrendAnalyzer(target_path)
+
+        summary = analyzer.get_trend_summary()
+        suggestions = analyzer.get_improvement_suggestions()
+        history = analyzer.get_history(limit=limit)
+
+        return json.dumps({
+            "status": "success",
+            "summary": summary,
+            "suggestions": suggestions,
+            "history": [h.to_dict() for h in history],
+            "report_section": analyzer.generate_trend_report()
         }, indent=2)
     except Exception as e:
         return json.dumps({"status": "error", "error": str(e)})
