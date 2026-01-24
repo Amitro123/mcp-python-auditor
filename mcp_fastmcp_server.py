@@ -20,8 +20,7 @@ import ast
 import re
 import shutil
 import subprocess
-from collections import defaultdict
-from typing import Dict, Any, List, Set, Tuple
+from typing import Dict, Any, List
 
 # Import our internal tools
 from app.tools.structure_tool import StructureTool
@@ -38,6 +37,7 @@ from app.core.cache_manager import CacheManager
 from app.core.incremental_engine import IncrementalEngine
 # Trigger reload for report_context changes
 from app.core.report_generator_v2 import ReportGeneratorV2
+from app.core.scoring_engine import ScoringEngine
 
 # Create the MCP Server
 mcp = FastMCP("Python Auditor")
@@ -214,60 +214,10 @@ def run_bandit(path: Path) -> dict:
 
 
 def run_secrets(path: Path) -> dict:
-    """Run detect-secrets scan."""
-    try:
-        target_path = Path(path).resolve()
-        # Use cwd=. pattern
-        cmd = [
-            "detect-secrets", "scan", ".",
-            "--exclude-files", "node_modules",
-            "--exclude-files", "venv",
-            "--exclude-files", ".venv",
-            "--exclude-files", ".git",
-            "--exclude-files", "__pycache__",
-            "--exclude-files", "frontend/test-results",
-            "--exclude-files", "playwright-report"
-        ]
-        try:
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                timeout=60, 
-                cwd=str(target_path),
-                stdin=subprocess.DEVNULL
-            )
-        except subprocess.TimeoutExpired:
-            return {"tool": "secrets", "status": "error", "error": "Timeout (>60s)"}
-        
-        secrets = []
-        if result.stdout:
-            try:
-                data = json.loads(result.stdout)
-                for file_path, findings in data.get("results", {}).items():
-                    # Filter venv/lock files
-                    if "lock" in file_path or ".min." in file_path:
-                        continue
-                    for finding in findings:
-                        secrets.append({
-                            "file": file_path,
-                            "line": finding.get("line_number"),
-                            "type": finding.get("type", "Secret"),
-                            "hashed_secret": finding.get("hashed_secret", "")[:8] + "..."
-                        })
-            except json.JSONDecodeError:
-                pass
-            
-        return {
-            "tool": "secrets",
-            "status": "issues_found" if secrets else "clean",
-            "total_secrets": len(secrets),
-            "secrets": secrets[:20]
-        }
-    except FileNotFoundError:
-        return {"tool": "secrets", "status": "skipped", "error": "detect-secrets not installed", "secrets": [], "total_secrets": 0}
-    except Exception as e:
-        return {"tool": "secrets", "status": "error", "error": str(e), "secrets": [], "total_secrets": 0}
+    """Run detect-secrets scan using SecretsTool."""
+    from app.tools.secrets_tool import SecretsTool
+    tool = SecretsTool()
+    return tool.analyze(Path(path))
 
 
 def run_ruff(path: Path) -> dict:
@@ -344,588 +294,48 @@ def run_tests_coverage(path: Path) -> dict:
     return tool.analyze(Path(path))
 
 
-def _parse_imports_ast(py_files: List[Path], root_path: Path) -> Tuple[Set[str], List[Tuple[str, str]], Dict[str, Set[str]]]:
-    """Parses AST to find imports and dependencies."""
-    STDLIB_MODULES = {
-        'os', 'sys', 'json', 'time', 'datetime', 'pathlib', 're', 'typing',
-        'collections', 'itertools', 'functools', 'logging', 'subprocess',
-        'threading', 'multiprocessing', 'asyncio', 'uuid', 'hashlib',
-        'base64', 'io', 'copy', 'math', 'random', 'abc', 'dataclasses',
-        'enum', 'contextlib', 'warnings', 'traceback', 'inspect', 'shutil',
-        'tempfile', 'glob', 'fnmatch', 'stat', 'struct', 'codecs', 'csv',
-        'configparser', 'argparse', 'getopt', 'optparse', 'unittest', 'doctest',
-        'pdb', 'profile', 'timeit', 'gc', 'platform', 'socket', 'http',
-        'urllib', 'email', 'html', 'xml', 'ssl', 'ftplib', 'smtplib',
-        'pickle', 'shelve', 'sqlite3', 'zlib', 'gzip', 'zipfile', 'tarfile',
-        'textwrap', 'string', 'difflib', 'ctypes', 'types', 'operator',
-        '__future__', 'builtins', 'importlib', 'pkgutil', 'pprint', 'secrets'
-    }
-
-    dependencies = []
-    file_nodes = set()
-    nodes_by_group = defaultdict(set)
-    
-    for py_file in py_files[:50]:  # Limit to avoid huge graphs
-        try:
-            source_code = py_file.read_text(encoding='utf-8', errors='ignore')
-            tree = ast.parse(source_code)
-
-            try:
-                rel_path = py_file.relative_to(root_path)
-            except ValueError:
-                rel_path = py_file.name
-
-            source_name = str(rel_path).replace('\\', '/').replace('.py', '')
-            file_nodes.add(source_name)
-
-            parts = source_name.split('/')
-            group = parts[0] if len(parts) > 1 else "root"
-            nodes_by_group[group].add(source_name)
-
-            for node in ast.walk(tree):
-                target_module = None
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        target_module = alias.name.split('.')[0]
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module:
-                        target_module = node.module.split('.')[0]
-
-                if target_module and target_module not in STDLIB_MODULES:
-                    if target_module in [f.stem for f in py_files] or '.' not in target_module:
-                        dependencies.append((source_name, target_module))
-        except (SyntaxError, UnicodeDecodeError):
-            continue
-
-    return file_nodes, dependencies, nodes_by_group
-
-def _generate_mermaid_graph(nodes_by_group: Dict[str, Set[str]], dependencies: List[Tuple[str, str]]) -> str:
-    """Generates a Mermaid graph string from nodes and dependencies."""
-    mermaid_lines = ["graph TD"]
-
-    for group_name, nodes in sorted(nodes_by_group.items()):
-        if not nodes: continue
-        display_name = group_name.replace('_', ' ').title()
-        mermaid_lines.append(f"    subgraph {display_name}")
-        for node in sorted(nodes):
-            clean_node = node.replace('/', '_').replace('-', '_')
-            mermaid_lines.append(f"        {clean_node}[{node}]")
-        mermaid_lines.append("    end")
-
-    seen_edges = set()
-    for source, target in dependencies[:100]:
-        edge = f"{source}-->{target}"
-        if edge not in seen_edges and source != target:
-            seen_edges.add(edge)
-            clean_source = source.replace('/', '_').replace('-', '_')
-            clean_target = target.replace('/', '_').replace('-', '_')
-            mermaid_lines.append(f"    {clean_source} --> {clean_target}")
-
-    return "\n".join(mermaid_lines) if len(mermaid_lines) > 1 else "graph TD\n    Note[No internal dependencies found]"
-
 def run_architecture_visualizer(path: Path) -> dict:
-    """
-    Generate a Mermaid.js dependency graph by parsing Python imports.
-    Pure Python implementation using AST - groups nodes into subgraphs by directory.
-    """
-    try:
-        p = Path(path)
-        py_files = list(p.glob("**/*.py"))
-        
-        py_files = [f for f in py_files if not any(
-            skip in str(f) for skip in [
-                'venv', '.venv', 'node_modules', '__pycache__', 
-                '.git', 'site-packages', 'external_libs', 'htmlcov'
-            ]
-        )]
-        
-        file_nodes, dependencies, nodes_by_group = _parse_imports_ast(py_files, p)
-        mermaid_graph = _generate_mermaid_graph(nodes_by_group, dependencies)
-        
-        return {
-            "tool": "architecture",
-            "status": "analyzed",
-            "total_files": len(py_files),
-            "total_dependencies": len(dependencies),
-            "mermaid_graph": mermaid_graph,
-            "nodes": list(file_nodes)[:30]
-        }
-    except Exception as e:
-        return {"tool": "architecture", "status": "error", "error": str(e)}
-
-
-def _calculate_audit_score(results: dict) -> int:
-    """Calculates a weighted audit score based on tool results."""
-    score = 100
-    
-    # 1. Security Penalty (Max -30)
-    bandit_issues = results.get("bandit", {}).get("issues", [])
-    if bandit_issues:
-        score -= 20  # Critical security issues
-    
-    secrets_findings = results.get("secrets", {}).get("total_findings", 0)
-    if secrets_findings > 0:
-        score -= 10  # Credentials in code
-    
-    # 2. Testing Penalty (Max -40, Exponential)
-    cov = results.get("tests", {}).get("coverage_percent", 100)
-    if cov < 20:
-        score -= 40  # Severe: Almost no tests
-    elif cov < 50:
-        score -= 25  # Major: Low coverage
-    elif cov < 80:
-        score -= 10  # Minor: Needs improvement
-    
-    # 3. Code Quality Penalty (Max -20)
-    duplicates = results.get("duplication", {}).get("total_duplicates", 0)
-    score -= min(duplicates, 15)  # -1 per duplicate, cap at -15
-    
-    dead_code_items = len(results.get("dead_code", {}).get("unused_items", []))
-    score -= min(dead_code_items, 5)  # -1 per dead item, cap at -5
-    
-    # 4. Complexity Penalty (Max -10) - uses FastAuditTool format
-    complex_funcs = len(results.get("efficiency", {}).get("complexity", []))
-    score -= min(complex_funcs * 2, 10)  # -2 per complex function, cap at -10
-    
-    return max(0, score)
-
-def _generate_report_header(path: str, score: int, job_id: str, duration: str) -> List[str]:
-    """Generates the markdown header with score and status."""
-    score_emoji = "🟢" if score >= 80 else "🟡" if score >= 60 else "🔴"
-    md = []
-    try:
-        md.append(f"# 🕵️‍♂️ Project Audit Report: {Path(path).name}")
-        md.append(f"**Score:** {score}/100 {score_emoji} | **Date:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
-        md.append(f"**Scan Duration:** {duration} | **Job ID:** `{job_id}`")
-    except Exception as e:
-        log(f"Error generating report header: {e}")
-        md.append(f"# Audit Report (Error: {e})")
-    md.append("")
-    md.append("## 🔧 Self-Healing Status")
-    md.append("**Status:** Healthy ✅ (No missing tools detected)") 
-    md.append("")
-    return md
-
-def _generate_tool_summary(results: dict) -> List[str]:
-    """Generates the tool execution summary table."""
-    md = ["## 📊 Tool Execution Summary", "", "| Tool | Status | Details |", "|------|--------|----------|"]
-    
-    def tool_status(result):
-        status = result.get("status", "unknown")
-        if status == "clean": return "✅ Pass"
-        elif status == "issues_found": return "❌ Fail"
-        elif status == "error": return "⚠️ Error"
-        elif status == "skipped": return "⏭️ Skip"
-        else: return "ℹ️ Info"
-
-    tools_summary = [
-        ("📁 Structure", results.get("structure", {}), lambda r: f"{r.get('total_files', 0)} files, {r.get('total_dirs', 0)} dirs"),
-        ("🏗️ Architecture", results.get("architecture", {}), lambda r: f"{r.get('total_dependencies', 0)} dependencies"),
-        ("🧮 Complexity", results.get("efficiency", {}), lambda r: f"{len(r.get('complexity', []))} high-complexity functions"),
-        ("🎭 Duplication", results.get("duplication", {}), lambda r: f"{r.get('total_duplicates', 0)} duplicate blocks"),
-        ("☠️ Dead Code", results.get("dead_code", {}), lambda r: f"{r.get('total_dead_code', 0)} unused items"),
-        ("🧹 Cleanup", results.get("cleanup", {}), lambda r: f"{r.get('total_size_mb', 0):.1f} MB reclaimable"),
-        ("🔑 Secrets", results.get("secrets", {}), lambda r: f"{r.get('total_findings', 0)} secrets found"),
-        ("🔒 Security (Bandit)", results.get("bandit", {}), lambda r: f"{r.get('total_issues', 0)} issues"),
-        ("📋 Ruff", results.get("ruff", {}), lambda r: f"{r.get('total_issues', 0)} issues"),
-        ("🔍 Pip-Audit", results.get("pip_audit", {}), lambda r: f"{r.get('total_vulns', 0)} vulnerabilities"),
-        ("✅ Tests", results.get("tests", {}), lambda r: f"Coverage: {r.get('coverage_percent', 0)}%"),
-        ("📝 Git Info", results.get("git_info", {}), lambda r: r.get('current_branch', 'N/A')),
-    ]
-    
-    for tool_name, result, details_fn in tools_summary:
-        status_str = tool_status(result)
-        try:
-            details = details_fn(result) if result else "Not run"
-        except: details = "N/A"
-        md.append(f"| {tool_name} | {status_str} | {details} |")
-    md.append("")
-    return md
-
-def _generate_priorities_section(results: dict, score: int) -> List[str]:
-    """Generates the Top Priorities section."""
-    md = ["## 🚨 Top Priorities"]
-    priorities = []
-
-    bandit_issues = results.get("bandit", {}).get("issues", [])
-    if bandit_issues:
-        priorities.append("🔴 **Security:** Critical vulnerabilities found.")
-    
-    cov = results.get("tests", {}).get("coverage_percent", 100)
-    if cov < 50:
-        priorities.append(f"🟡 **Testing:** Very low coverage ({cov}%)")
-    
-    if not priorities:
-        md.append("✅ No critical priority fixes needed.")
-    else:
-        for i, p in enumerate(priorities, 1):
-            md.append(f"{i}. {p}")
-    md.append("")
-    return md
-
-def _generate_detailed_findings(results: dict) -> List[str]:
-    """Generates the Detailed Findings sections."""
-    md = ["## 📊 Detailed Findings"]
-    
-    # Security
-    bandit_issues = results.get("bandit", {}).get("issues", [])
-    md.append(f"### 🛡️ Security ({len(bandit_issues)} issues)")
-    if not bandit_issues:
-        md.append("✅ No security issues found.")
-    else:
-        md.append("| Severity | Type | File | Description |")
-        md.append("|----------|------|------|-------------|")
-        for issue in bandit_issues[:10]:
-            try: fname = Path(issue.get('file', '')).name
-            except Exception: fname = issue.get('file', 'unknown')
-            md.append(f"| {issue.get('severity')} | {issue.get('type')} | `{fname}:{issue.get('line')}` | {issue.get('description','')} |")
-    md.append("")
-
-    # Quality - Dead Code
-    md.append("### 🧹 Code Quality & Hygiene")
-    dead = results.get("dead_code", {}).get("items", [])
-    md.append(f"**💀 Dead Code / Unused ({len(dead)} items)**")
-    if dead:
-        for item in dead[:10]: md.append(f"- `{item}`")
-        if len(dead) > 10: md.append(f"- ... and {len(dead)-10} more")
-    else: md.append("✅ Clean.")
-    md.append("")
-
-    # Complexity (uses FastAuditTool format)
-    complex_funcs = results.get("efficiency", {}).get("complexity", [])
-    md.append("**🤯 Complex Functions (Ruff C90)**")
-    if complex_funcs:
-        md.append("| File | Line | Issue |")
-        md.append("|---|---|---|")
-        for f in complex_funcs[:10]:
-            try: fname = Path(f.get('file','')).name
-            except Exception: fname = f.get('file', 'unknown')
-            md.append(f"| {fname} | {f.get('line', '?')} | {f.get('message', '')} |")
-        if len(complex_funcs) > 10:
-            md.append(f"| ... | | +{len(complex_funcs) - 10} more |")
-    else: md.append("✅ No complex functions detected.")
-    md.append("")
-
-    # Duplication
-    dup = results.get("duplication", {})
-    md.append("## 🎭 DUPLICATES (Grouped + Actionable)")
-    if dup.get("status") == "issues_found":
-        md.append(f"**Found {dup.get('total_duplicates', 0)} duplicated blocks.**")
-        for d in dup.get("duplicates", [])[:5]:
-             md.append(f"- **Hash:** `{d['hash'][:8]}` ({d['count']} copies)")
-             for loc in d.get("locations", [])[:3]:
-                  md.append(f"  - `{loc}`")
-             if len(d.get("locations", [])) > 3:
-                  md.append(f"  - ...and {len(d['locations'])-3} more")
-    elif dup.get("status") == "error":
-         md.append(f"⚠️ **Duplication analysis failed:** {dup.get('error')}")
-    else: md.append("✅ No code duplication found.")
-    md.append("")
-
-    return md
-
-def generate_full_markdown_report(job_id: str, duration: str, results: dict, path: str) -> str:
-    """Generate a rich, dashboard-style Markdown report."""
-    score = _calculate_audit_score(results)
-
-    md = _generate_report_header(path, score, job_id, duration)
-    md.extend(_generate_tool_summary(results))
-    md.extend(_generate_priorities_section(results, score))
-
-    # Structure
-    try:
-        md.append("## 📂 Project Structure")
-        struct = results.get("structure", {})
-        file_counts = struct.get("file_counts", {})
-        py_count = file_counts.get(".py", 0)
-        md.append(f"**Files:** {struct.get('total_files', 0)} total ({py_count} Python) | **Directories:** {struct.get('total_dirs', 0)}")
-        if struct.get("tree"):
-            md.append("### 📁 Tree View")
-            md.append("```\n" + struct.get("tree") + "\n```")
-        md.append("")
-    except Exception as e:
-         log(f"Error in Structure section: {e}")
-         md.append(f"Error rendering structure: {e}")
-
-    # Architecture
-    md.append("## 🗺️ Architecture Logic")
-    if results.get("architecture", {}).get("mermaid_graph"):
-        md.append("```mermaid\n" + results["architecture"]["mermaid_graph"] + "\n```")
-    else: md.append("_No architecture graph generated._")
-    md.append("")
-
-    md.extend(_generate_detailed_findings(results))
-
-    # Cleanup
-    cleanup = results.get("cleanup", {})
-    md.append("**🗑️ Junk / Cleanup**")
-    md.append(f"- **Total Reclaimable:** {cleanup.get('total_size_mb', 0)} MB")
-    for target, count in cleanup.get("cleanup_targets", {}).items():
-        md.append(f"  - `{target}`: {count} items")
-    md.append("")
-
-    # Tests
-    tests = results.get("tests", {})
-    md.append("### 🧪 Tests & Coverage")
-    md.append("")
-    md.append(f"**Coverage:** {tests.get('coverage_percent', 0)}%")
-    md.append(f"**Passed:** {tests.get('tests_passed', 0)} ✅ | **Failed:** {tests.get('tests_failed', 0)} ❌")
-    md.append("")
-    
-    # Git Info (uses GitTool format)
-    git_info = results.get("git_info", {})
-    md.append("### 📝 Recent Changes")
-    if git_info.get("has_git"):
-        md.append(f"**Branch:** `{git_info.get('branch', 'unknown')}`")
-        if git_info.get("last_commit"):
-            md.append(f"**Last Commit:** {git_info.get('last_commit')}")
-        days = git_info.get("days_since_commit", 0)
-        if days > 30:
-            md.append(f"⚠️ **Stale:** No commits in {days} days")
-        if git_info.get("has_uncommitted_changes"):
-            md.append("⚠️ **Uncommitted changes detected**")
-    else:
-        md.append("ℹ️ Not a git repository")
-    md.append("")
-    
-    md.append("\n---\n*Generated by Python Auditor MCP v2.1*")
-    
-    return "\n".join(md)
-    
-
-
-
-def validate_report_integrity(report_content: str) -> str:
-    """Ensures report has all required sections (Security, Quality, Duplication, Tests)."""
-    # Updated to match actual template section headers
-    required = [
-        "## 📂 Project Structure",
-        "## 📊 Detailed Findings",
-        "## 🔒 Security Analysis",  # Fixed: was "### 🛡️ Security"
-        "## 🧪 Test Coverage",
-        "## 🧹 Code Quality"  # Includes duplication subsection
-    ]
-    missing = [r for r in required if r not in report_content]
-
-    footer = "\n\n## 🛡️ Report Integrity Check\n"
-    if missing:
-        footer += f"**Status:** ⚠️ Incomplete\nMissing sections: {', '.join(missing)}"
-    else:
-        footer += "**Status:** ✅ Pass (All sections verified)"
-
-    return report_content + footer
+    """Generate a Mermaid.js dependency graph using ArchitectureTool."""
+    tool = ArchitectureTool()
+    return tool.generate_dependency_graph(Path(path))
 
 
 async def run_audit_background(job_id: str, path: str):
+    """Run a full audit in the background using AuditOrchestrator."""
+    from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners
 
-    """The actual heavy lifting function running in the background."""
     log(f"[Job {job_id}] Starting FULL AUDIT on {path}...")
     JOBS[job_id] = {"status": "running", "start_time": time.time()}
-    
+
     target = Path(path).resolve()
-    
+
     try:
-        # Initialize cache manager
-        from app.core.cache_manager import CacheManager
-        cache_mgr = CacheManager(str(target), max_age_hours=1)
-        log(f"[Job {job_id}] Cache manager initialized")
-        
-        # Helper for logging
-        async def run_with_log(name: str, coro):
-            log(f"[Job {job_id}] ⏳ Starting {name}...")
-            try:
-                start_t = time.time()
-                res = await coro
-                res["duration_s"] = round(time.time() - start_t, 2)
-                log(f"[Job {job_id}] ✅ Finished {name} ({res['duration_s']}s)")
-                return res
-            except Exception as e:
-                log(f"[Job {job_id}] ❌ Failed {name}: {e}")
-                return {"tool": name, "status": "error", "error": str(e)}
-        
-        # Cached wrapper functions
-        async def run_bandit_cached():
-            cached = cache_mgr.get_cached_result("bandit", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_bandit, target)
-            cache_mgr.save_result("bandit", result, ["**/*.py"])
-            return result
-        
-        async def run_secrets_cached():
-            cached = cache_mgr.get_cached_result("secrets", ["**/*"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_secrets, target)
-            cache_mgr.save_result("secrets", result, ["**/*"])
-            return result
-        
-        async def run_ruff_cached():
-            cached = cache_mgr.get_cached_result("ruff", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_ruff, target)
-            cache_mgr.save_result("ruff", result, ["**/*.py"])
-            return result
-        
-        async def run_pip_audit_cached():
-            cached = cache_mgr.get_cached_result("pip_audit", ["requirements.txt", "pyproject.toml", "setup.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_pip_audit, target)
-            cache_mgr.save_result("pip_audit", result, ["requirements.txt", "pyproject.toml", "setup.py"])
-            return result
-        
-        async def run_structure_cached():
-            cached = cache_mgr.get_cached_result("structure", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_structure, target)
-            cache_mgr.save_result("structure", result, ["**/*.py"])
-            return result
-        
-        async def run_dead_code_cached():
-            cached = cache_mgr.get_cached_result("dead_code", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_dead_code, target)
-            cache_mgr.save_result("dead_code", result, ["**/*.py"])
-            return result
-        
-        async def run_efficiency_cached():
-            cached = cache_mgr.get_cached_result("efficiency", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_efficiency, target)
-            cache_mgr.save_result("efficiency", result, ["**/*.py"])
-            return result
-        
-        async def run_duplication_cached():
-            cached = cache_mgr.get_cached_result("duplication", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_duplication, target)
-            cache_mgr.save_result("duplication", result, ["**/*.py"])
-            return result
-        
-        async def run_git_info_cached():
-            # Git info changes frequently, use shorter cache (5 minutes)
-            cached = cache_mgr.get_cached_result("git_info", [".git/HEAD", ".git/index"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_git_info, target)
-            cache_mgr.save_result("git_info", result, [".git/HEAD", ".git/index"])
-            return result
-        
-        async def run_cleanup_cached():
-            # Cleanup scan doesn't need caching (it's fast and checks current state)
-            return await asyncio.to_thread(run_cleanup_scan, target)
-        
-        async def run_architecture_cached():
-            cached = cache_mgr.get_cached_result("architecture", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_architecture_visualizer, target)
-            cache_mgr.save_result("architecture", result, ["**/*.py"])
-            return result
-        
-        async def run_tests_cached():
-            cached = cache_mgr.get_cached_result("tests", ["tests/**/*.py", "**/*.py", "pytest.ini", "pyproject.toml"])
-            if cached: return cached
-            result = await asyncio.to_thread(run_tests_coverage, target)
-            cache_mgr.save_result("tests", result, ["tests/**/*.py", "**/*.py", "pytest.ini", "pyproject.toml"])
-            return result
+        # Initialize orchestrator
+        orchestrator = AuditOrchestrator(target, REPORTS_DIR)
+        orchestrator.set_log_callback(lambda msg: log(f"[Job {job_id}] {msg}"))
 
-        async def run_typing_cached():
-            cached = cache_mgr.get_cached_result("typing", ["**/*.py"])
-            if cached: return cached
-            result = await asyncio.to_thread(lambda: TypingTool().analyze(target))
-            cache_mgr.save_result("typing", result, ["**/*.py"])
-            return result
+        # Get default tool runners
+        tool_runners = create_default_tool_runners(target)
 
-        async def run_gitignore_cached():
-            # Gitignore is fast and checks current state
-            return await asyncio.to_thread(lambda: GitignoreTool().analyze(target))
+        # Run audit
+        result_dict = await orchestrator.run_full_audit(tool_runners, job_id)
 
-        # Run ALL tools in parallel with caching
-        log(f"[Job {job_id}] Launching tools in parallel with caching enabled...")
-        results = await asyncio.gather(
-            run_with_log("Bandit", run_bandit_cached()),
-            run_with_log("Secrets", run_secrets_cached()),
-            run_with_log("Ruff", run_ruff_cached()),
-            run_with_log("Pip-Audit", run_pip_audit_cached()),
-            run_with_log("Structure", run_structure_cached()),
-            run_with_log("Dead Code", run_dead_code_cached()),
-            run_with_log("Efficiency", run_efficiency_cached()),
-            run_with_log("Duplication", run_duplication_cached()),
-            run_with_log("Git Info", run_git_info_cached()),
-            run_with_log("Cleanup", run_cleanup_cached()),
-            run_with_log("Architecture", run_architecture_cached()),
-            run_with_log("Tests", run_tests_cached()),
-            run_with_log("Typing", run_typing_cached()),
-            run_with_log("Gitignore", run_gitignore_cached())
-        )
-        
+        # Generate report
+        report_path = orchestrator.generate_report(job_id, result_dict)
+
+        # Calculate duration
         duration = f"{time.time() - JOBS[job_id]['start_time']:.2f}s"
-        duration_seconds = time.time() - JOBS[job_id]['start_time']  # ADDED: numeric duration
-        
-        result_dict = {
-            "bandit": results[0],
-            "secrets": results[1],
-            "ruff": results[2],
-            "pip_audit": results[3],
-            "structure": results[4],
-            "dead_code": results[5],
-            "efficiency": results[6],
-            "duplication": results[7],
-            "git_info": results[8],
-            "cleanup": results[9],
-            "architecture": results[10],
-            "tests": results[11],
-            "typing": results[12],
-            "gitignore": results[13],
-            "installed_tools": [],
-            "duration_seconds": duration_seconds  # ADDED: for report context
-        }
-        
-        # AUTO-GENERATE REPORT using Jinja2 engine
-        log(f"[Job {job_id}] Generating Markdown report with Jinja2...")
-        
-        try:
-            # Use Jinja2-based report generator
-            generator = ReportGeneratorV2(REPORTS_DIR)
-            report_path = generator.generate_report(
-                report_id=job_id,
-                project_path=path,
-                score=0,  # Will be calculated inside
-                tool_results=result_dict,
-                timestamp=datetime.datetime.now()
-            )
-            
-            # Read the generated report
-            report_content = Path(report_path).read_text(encoding='utf-8')
-            
-            # Add integrity check
-            report_content = validate_report_integrity(report_content)
-            
-            # Write back with validation
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(report_content)
-                
-        except Exception as e:
-            # Fallback to legacy generator if Jinja2 fails
-            import traceback
-            error_details = traceback.format_exc()
-            log(f"[Job {job_id}] Jinja2 failed, using legacy generator: {e}")
-            report_content = generate_full_markdown_report(job_id, duration, result_dict, path)
-            report_content = validate_report_integrity(report_content)
-            
-            report_path = REPORTS_DIR / f"FULL_AUDIT_{job_id}.md"
-            report_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(report_content)
-        
-        # Update Job with results and report path
+
+        # Update job status
         JOBS[job_id] = {
             "status": "completed",
             "duration": duration,
             "report_path": str(report_path),
-            "summary": f"12 tools completed. Report: {Path(report_path).name}",
+            "summary": f"{len(tool_runners)} tools completed. Report: {report_path.name}",
             "result": result_dict
         }
         log(f"[Job {job_id}] COMPLETED. Report saved to: {report_path}")
-        
+
     except Exception as e:
         log(f"[Job {job_id}] FAILED: {e}")
         JOBS[job_id] = {"status": "failed", "error": str(e)}
@@ -1232,197 +642,10 @@ def get_changed_files(path: Path, base_branch: str = "main") -> list:
     except Exception: return []
 
 
-@mcp.tool()
-def audit_pr_changes(path: str, base_branch: str = "main", run_tests: bool = True) -> str:
-    """
-    PR Gatekeeper: Fast delta-based audit of ONLY changed files.
-    """
-    return _audit_pr_changes_logic(path, base_branch, run_tests)
-
-
-def _run_bandit_scan(target: Path, changed_files: list) -> dict:
-    """Run Bandit security scan on changed files."""
-    try:
-        cmd = [sys.executable, "-m", "bandit", "-c", "pyproject.toml"] + changed_files + ["-f", "json", "--exit-zero"]
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, cwd=str(target), stdin=subprocess.DEVNULL, shell=False
-        )
-        bandit_data = json.loads(result.stdout) if result.stdout else {}
-        normalized_issues = []
-        for issue in bandit_data.get("results", []):
-            normalized_issues.append({
-                "severity": issue.get("issue_severity"),
-                "file": issue.get("filename"),
-                "line": issue.get("line_number"),
-                "description": issue.get("issue_text"),
-                "code": issue.get("code")
-            })
-        return {"total_issues": len(normalized_issues), "issues": normalized_issues[:10]}
-    except Exception as e:
-        return {"error": str(e), "total_issues": 0}
-
-def _run_ruff_scan(target: Path, changed_files: list) -> dict:
-    """Run Ruff linting on changed files."""
-    try:
-        cmd = [sys.executable, "-m", "ruff", "check"] + changed_files + ["--output-format", "json"]
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, cwd=str(target), stdin=subprocess.DEVNULL, shell=False
-        )
-        ruff_issues = json.loads(result.stdout) if result.stdout else []
-        return {"total_issues": len(ruff_issues), "issues": ruff_issues[:10]}
-    except Exception as e:
-        return {"error": str(e), "total_issues": 0}
-
-def _run_radon_scan(target: Path, changed_files: list) -> dict:
-    """Run Radon complexity analysis on changed files."""
-    try:
-        cmd = [sys.executable, "-m", "radon", "cc"] + changed_files + ["-a", "-j"]
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60, cwd=str(target), stdin=subprocess.DEVNULL, shell=False
-        )
-        radon_data = json.loads(result.stdout) if result.stdout else {}
-        high_complexity = []
-        for file_path, functions in radon_data.items():
-            if isinstance(functions, list):
-                for func in functions:
-                    if func.get('rank', 'A') in ['C', 'D', 'E', 'F']:
-                        high_complexity.append({
-                            "file": Path(file_path).name,
-                            "function": func.get('name', ''),
-                            "complexity": func.get('complexity', 0),
-                            "rank": func.get('rank', '')
-                        })
-        return {"total_high_complexity": len(high_complexity), "high_complexity_functions": high_complexity[:10]}
-    except Exception as e:
-        return {"error": str(e), "total_high_complexity": 0}
-
-def _calculate_pr_score(results: dict) -> int:
-    """Calculate score based on audit results."""
-    score = 100
-    
-    # Security penalties
-    bandit_issues_count = results.get("bandit", {}).get("total_issues", 0)
-    if bandit_issues_count > 0:
-        score -= min(bandit_issues_count * 5, 30)
-    
-    # Quality penalties
-    ruff_issues_count = results.get("ruff", {}).get("total_issues", 0)
-    if ruff_issues_count > 0:
-        score -= min(ruff_issues_count * 2, 20)
-    
-    # Complexity penalties
-    complexity_count = results.get("radon", {}).get("total_high_complexity", 0)
-    if complexity_count > 0:
-        score -= min(complexity_count * 3, 15)
-    
-    return max(0, score)
-
-def _run_safety_net_tests(target: Path) -> tuple:
-    """Run tests as a safety net."""
-    try:
-        python_exe = _find_test_python_exe(target)
-        cmd = [python_exe, "-m", "pytest", "-x", "--tb=short", "-q"]
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120, cwd=str(target), stdin=subprocess.DEVNULL
-        )
-        return (result.returncode == 0, result.stdout + result.stderr)
-    except Exception as e:
-        return (False, f"⚠️ Could not run tests: {e}")
-
-def _generate_pr_findings_section(results: dict) -> List[str]:
-    """Generates the findings section for the PR report."""
-    md = []
-    
-    # Security findings
-    bandit_issues_count = results.get("bandit", {}).get("total_issues", 0)
-    md.append("## 🔒 Security Scan (Bandit)")
-    if bandit_issues_count > 0:
-        md.append(f"**Status:** ❌ {bandit_issues_count} issue(s) found")
-        for issue in results["bandit"].get("issues", [])[:5]:
-            md.append(f"- **{issue.get('severity')}** in `{Path(issue.get('file', '')).name}:{issue.get('line')}`: {issue.get('description', '')}")
-    else: md.append("**Status:** ✅ No security issues detected")
-    md.append("")
-    
-    # Linting findings
-    ruff_issues_count = results.get("ruff", {}).get("total_issues", 0)
-    md.append("## 📋 Code Quality (Ruff)")
-    if ruff_issues_count > 0:
-        md.append(f"**Status:** ⚠️ {ruff_issues_count} issue(s) found")
-        for issue in results["ruff"].get("issues", [])[:5]:
-            md.append(f"- `{Path(issue.get('filename', '')).name}:{issue.get('location', {}).get('row')}` - {issue.get('code')}: {issue.get('message', '')}")
-    else: md.append("**Status:** ✅ No linting issues detected")
-    md.append("")
-    
-    # Complexity findings
-    complexity_count = results.get("radon", {}).get("total_high_complexity", 0)
-    md.append("## 🧮 Complexity (Radon)")
-    if complexity_count > 0:
-        md.append(f"**Status:** ⚠️ {complexity_count} high-complexity function(s)")
-        for func in results["radon"].get("high_complexity_functions", [])[:5]:
-            md.append(f"- `{func['function']}` in `{func['file']}`: Complexity {func['complexity']} (Rank {func['rank']})")
-    else: md.append("**Status:** ✅ No high-complexity functions")
-    md.append("")
-    
-    return md
-
-def _generate_pr_report(
-    base_branch: str,
-    changed_files: list,
-    score: int,
-    results: dict,
-    tests_passed: bool,
-    test_output: str,
-    run_tests: bool,
-    target: Path
-) -> str:
-    """Generate Markdown report for PR audit."""
-    md = ["# 🚦 PR Gatekeeper Report", ""]
-    md.append(f"**Base Branch:** `{base_branch}`")
-    md.append(f"**Changed Files:** {len(changed_files)} Python files")
-    md.append(f"**Score:** {score}/100")
-    md.append("")
-
-    md.append("## 📝 Changed Files")
-    for f in changed_files[:20]:
-        rel_path = Path(f).relative_to(target) if Path(f).is_absolute() else f
-        md.append(f"- `{rel_path}`")
-    if len(changed_files) > 20: md.append(f"- ...and {len(changed_files) - 20} more")
-    md.append("")
-
-    md.extend(_generate_pr_findings_section(results))
-
-    # Test results
-    if run_tests:
-        md.append("## ✅ Test Safety Net")
-        if score > 80:
-            if tests_passed: md.append("**Status:** ✅ All tests passed")
-            else:
-                md.append("**Status:** ❌ Tests failed")
-                md.append(f"```\n{test_output[:500]}\n```")
-        else: md.append("**Status:** ⏭️ Skipped (score too low, fix issues first)")
-        md.append("")
-    
-    # Bottom Line
-    md.append("---\n## 🎯 Bottom Line\n")
-    
-    bandit_issues_count = results.get("bandit", {}).get("total_issues", 0)
-    blocking_issues = []
-    if bandit_issues_count > 0: blocking_issues.append(f"🔴 {bandit_issues_count} security issue(s)")
-    if not tests_passed and run_tests and score > 80: blocking_issues.append("🔴 Tests failing")
-    
-    if blocking_issues:
-        md.append("### 🔴 Request Changes\n\n**Blocking Issues:**")
-        for issue in blocking_issues: md.append(f"- {issue}")
-    elif score >= 80:
-        md.append("### 🟢 Ready for Review\n\n✅ Code quality is good, no blocking issues detected.")
-    else:
-        md.append(f"### 🟡 Needs Improvement\n\nScore is {score}/100. Please address the issues above before requesting review.")
-    
-    md.append("\n\n---\n*Generated by Python Auditor MCP - PR Gatekeeper*")
-    return "\n".join(md)
-
 def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: bool = True) -> str:
-    """Internal logic for PR audit."""
+    """Internal logic for PR audit using PRAuditTool."""
+    from app.tools.pr_audit_tool import PRAuditTool
+
     log(f"[PR-GATE] Starting PR audit for: {path} (base: {base_branch})")
     target = Path(path).resolve()
 
@@ -1436,42 +659,65 @@ def _audit_pr_changes_logic(path: str, base_branch: str = "main", run_tests: boo
 
     log(f"[PR-GATE] Found {len(changed_files)} changed Python files")
 
-    # Fast Scan
-    results = {
-        "bandit": _run_bandit_scan(target, changed_files),
-        "ruff": _run_ruff_scan(target, changed_files),
-        "radon": _run_radon_scan(target, changed_files)
-    }
+    # Run audit using PRAuditTool
+    tool = PRAuditTool()
+    result = tool.analyze(target, changed_files)
 
-    score = _calculate_pr_score(results)
+    # Run tests if score is high enough
     tests_passed = True
     test_output = ""
-    if run_tests and score > 80:
+    if run_tests and result.get("score", 0) > 80:
         tests_passed, test_output = _run_safety_net_tests(target)
 
-    report_text = _generate_pr_report(
-        base_branch, changed_files, score, results, tests_passed, test_output, run_tests, target
+    # Generate report
+    report_text = tool.generate_report(
+        base_branch, changed_files, result, tests_passed, test_output, run_tests, target
     )
 
-    recommendation = "🟡 Needs Improvement"
-    if results["bandit"]["total_issues"] > 0 or (run_tests and not tests_passed and score > 80):
+    # Map recommendation to display format with emojis
+    bandit_issues = result.get("bandit", {}).get("total_issues", 0)
+    score = result.get("score", 0)
+
+    if bandit_issues > 0 or (run_tests and not tests_passed and score > 80):
         recommendation = "🔴 Request Changes"
     elif score >= 80:
         recommendation = "🟢 Ready for Review"
-    
+    else:
+        recommendation = "🟡 Needs Improvement"
+
     return json.dumps({
         "status": "success",
         "recommendation": recommendation,
         "score": score,
         "changed_files_count": len(changed_files),
         "findings": {
-            "security_issues": results["bandit"]["total_issues"],
-            "linting_issues": results["ruff"]["total_issues"],
-            "complexity_issues": results["radon"]["total_high_complexity"],
+            "security_issues": bandit_issues,
+            "linting_issues": result.get("ruff", {}).get("total_issues", 0),
+            "complexity_issues": result.get("complexity", {}).get("total_high_complexity", 0),
             "tests_passed": tests_passed if run_tests else None
         },
         "report": report_text
     }, indent=2)
+
+
+@mcp.tool()
+def audit_pr_changes(path: str, base_branch: str = "main", run_tests: bool = True) -> str:
+    """
+    PR Gatekeeper: Fast delta-based audit of ONLY changed files.
+    """
+    return _audit_pr_changes_logic(path, base_branch, run_tests)
+
+
+def _run_safety_net_tests(target: Path) -> tuple:
+    """Run tests as a safety net."""
+    try:
+        cmd = [sys.executable, "-m", "pytest", "-x", "--tb=short", "-q"]
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120, cwd=str(target), stdin=subprocess.DEVNULL
+        )
+        return (result.returncode == 0, result.stdout + result.stderr)
+    except Exception as e:
+        return (False, f"Could not run tests: {e}")
 
 
 @mcp.tool()
@@ -1583,17 +829,32 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
             results["ruff"] = results["quality"] # alias
             results["efficiency"] = results["quality"] # alias for complexity
 
-            duration = f"{time.time() - start_time:.1f}s"
-            report_md = generate_full_markdown_report(job_id, duration, results, str(temp_path))
-            score = _calculate_audit_score(results)
+            duration_seconds = time.time() - start_time
+            results["duration_seconds"] = duration_seconds
+
+            # Use ScoringEngine for score calculation
+            score_breakdown = ScoringEngine.calculate_score(results)
+            score = score_breakdown.final_score
+
+            # Generate report using ReportGeneratorV2
+            generator = ReportGeneratorV2(REPORTS_DIR)
+            report_path = generator.generate_report(
+                report_id=job_id,
+                project_path=str(temp_path),
+                score=score,
+                tool_results=results,
+                timestamp=datetime.datetime.now()
+            )
+            report_md = Path(report_path).read_text(encoding='utf-8')
 
             return json.dumps({
                 "status": "success",
                 "repo_url": repo_url,
                 "branch": branch,
                 "score": score,
-                "duration": duration,
+                "duration": f"{duration_seconds:.1f}s",
                 "files_analyzed": len(py_files),
+                "report_path": str(report_path),
                 "report": report_md,
                 "summary": {
                     "security_issues": results.get("bandit", {}).get("total_issues", 0),
@@ -1638,19 +899,16 @@ def generate_full_report(path: str) -> str:
     results["quality"] = FastAuditTool().analyze(target_path)
     results["quality"]["duration_s"] = round(time.time() - tool_start, 2)
 
-    # Calculate score
-    score = _calculate_audit_score(results)
-
     # Add total duration
     results["duration_seconds"] = time.time() - start_time
 
-    # Generate Report
+    # Generate Report (score calculated internally by ScoringEngine)
     report_id = f"audit__{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     generator = ReportGeneratorV2(REPORTS_DIR)
     report_path = generator.generate_report(
         report_id=report_id,
         project_path=str(target_path),
-        score=score,
+        score=0,  # Deprecated: calculated by ScoringEngine
         tool_results=results,
         timestamp=datetime.datetime.now()
     )
@@ -1749,17 +1007,18 @@ async def start_incremental_audit(
         
         # Run incremental audit
         result = await engine.run_audit(tools, force_full=force_full)
-        
-        # Calculate score
-        score = _calculate_audit_score(result.tool_results)
-        
-        # Generate report
+
+        # Calculate score using ScoringEngine
+        score_breakdown = ScoringEngine.calculate_score(result.tool_results)
+        score = score_breakdown.final_score
+
+        # Generate report (score recalculated internally)
         report_id = f"audit__{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
         generator = ReportGeneratorV2(REPORTS_DIR)
         report_path = generator.generate_report(
             report_id=report_id,
             project_path=str(target_path),
-            score=score,
+            score=0,  # Deprecated: calculated by ScoringEngine
             tool_results=result.tool_results,
             timestamp=datetime.datetime.now()
         )

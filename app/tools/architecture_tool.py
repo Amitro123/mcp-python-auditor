@@ -1,11 +1,29 @@
 """Architecture analysis tool - FastAPI/Python best practices via AST."""
 import ast
+from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Set, Tuple
 from app.core.base_tool import BaseTool
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Standard library modules (for filtering imports in dependency graphs)
+STDLIB_MODULES = {
+    'os', 'sys', 'json', 'time', 'datetime', 'logging', 'pathlib', 're',
+    'typing', 'collections', 'functools', 'itertools', 'copy', 'io',
+    'abc', 'dataclasses', 'asyncio', 'concurrent', 'threading', 'multiprocessing',
+    'subprocess', 'hashlib', 'uuid', 'base64', 'math', 'random', 'decimal',
+    'fractions', 'statistics', 'array', 'bisect', 'heapq', 'queue',
+    'enum', 'contextlib', 'warnings', 'traceback', 'inspect', 'shutil',
+    'tempfile', 'glob', 'fnmatch', 'stat', 'struct', 'codecs', 'csv',
+    'configparser', 'argparse', 'getopt', 'optparse', 'unittest', 'doctest',
+    'pdb', 'profile', 'timeit', 'gc', 'platform', 'socket', 'http',
+    'urllib', 'email', 'html', 'xml', 'ssl', 'ftplib', 'smtplib',
+    'pickle', 'shelve', 'sqlite3', 'zlib', 'gzip', 'zipfile', 'tarfile',
+    'textwrap', 'string', 'difflib', 'ctypes', 'types', 'operator',
+    '__future__', 'builtins', 'importlib', 'pkgutil', 'pprint', 'secrets'
+}
 
 
 class ArchitectureTool(BaseTool):
@@ -249,3 +267,107 @@ class ArchitectureTool(BaseTool):
             severity = issue.get("severity", "info")
             counts[severity] = counts.get(severity, 0) + 1
         return counts
+
+    def generate_dependency_graph(self, project_path: Path) -> Dict[str, Any]:
+        """
+        Generate a Mermaid.js dependency graph by parsing Python imports.
+        Groups nodes into subgraphs by directory.
+
+        Args:
+            project_path: Path to the project directory
+
+        Returns:
+            Dictionary with mermaid_graph, total_files, total_dependencies, nodes
+        """
+        if not self.validate_path(project_path):
+            return {"tool": "architecture", "status": "error", "error": "Invalid path"}
+
+        try:
+            # Collect Python files using base class walker
+            py_files = list(self.walk_project_files(project_path))
+
+            file_nodes, dependencies, nodes_by_group = self._parse_imports_for_graph(py_files, project_path)
+            mermaid_graph = self._generate_mermaid_graph(nodes_by_group, dependencies)
+
+            return {
+                "tool": "architecture",
+                "status": "analyzed",
+                "total_files": len(py_files),
+                "total_dependencies": len(dependencies),
+                "mermaid_graph": mermaid_graph,
+                "nodes": list(file_nodes)[:30]
+            }
+        except Exception as e:
+            logger.error(f"Dependency graph generation failed: {e}")
+            return {"tool": "architecture", "status": "error", "error": str(e)}
+
+    def _parse_imports_for_graph(
+        self, py_files: List[Path], root_path: Path
+    ) -> Tuple[Set[str], List[Tuple[str, str]], Dict[str, Set[str]]]:
+        """Parse imports from Python files for dependency graph visualization."""
+        dependencies = []
+        file_nodes: Set[str] = set()
+        nodes_by_group: Dict[str, Set[str]] = defaultdict(set)
+
+        for py_file in py_files[:50]:  # Limit to avoid huge graphs
+            try:
+                source_code = py_file.read_text(encoding='utf-8', errors='ignore')
+                tree = ast.parse(source_code)
+
+                try:
+                    rel_path = py_file.relative_to(root_path)
+                except ValueError:
+                    rel_path = py_file.name
+
+                source_name = str(rel_path).replace('\\', '/').replace('.py', '')
+                file_nodes.add(source_name)
+
+                parts = source_name.split('/')
+                group = parts[0] if len(parts) > 1 else "root"
+                nodes_by_group[group].add(source_name)
+
+                for node in ast.walk(tree):
+                    target_module = None
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            target_module = alias.name.split('.')[0]
+                    elif isinstance(node, ast.ImportFrom):
+                        if node.module:
+                            target_module = node.module.split('.')[0]
+
+                    if target_module and target_module not in STDLIB_MODULES:
+                        if target_module in [f.stem for f in py_files] or '.' not in target_module:
+                            dependencies.append((source_name, target_module))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+
+        return file_nodes, dependencies, nodes_by_group
+
+    def _generate_mermaid_graph(
+        self, nodes_by_group: Dict[str, Set[str]], dependencies: List[Tuple[str, str]]
+    ) -> str:
+        """Generate a Mermaid graph string from nodes and dependencies."""
+        mermaid_lines = ["graph TD"]
+
+        for group_name, nodes in sorted(nodes_by_group.items()):
+            if not nodes:
+                continue
+            display_name = group_name.replace('_', ' ').title()
+            mermaid_lines.append(f"    subgraph {display_name}")
+            for node in sorted(nodes):
+                clean_node = node.replace('/', '_').replace('-', '_')
+                mermaid_lines.append(f"        {clean_node}[{node}]")
+            mermaid_lines.append("    end")
+
+        seen_edges: Set[str] = set()
+        for source, target in dependencies[:100]:
+            edge = f"{source}-->{target}"
+            if edge not in seen_edges and source != target:
+                seen_edges.add(edge)
+                clean_source = source.replace('/', '_').replace('-', '_')
+                clean_target = target.replace('/', '_').replace('-', '_')
+                mermaid_lines.append(f"    {clean_source} --> {clean_target}")
+
+        if len(mermaid_lines) > 1:
+            return "\n".join(mermaid_lines)
+        return "graph TD\n    Note[No internal dependencies found]"

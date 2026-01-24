@@ -98,7 +98,7 @@ class SecretsTool(BaseTool):
                     })
 
             return {
-                "tool": "detect-secrets",
+                "tool": "secrets",
                 "status": "issues_found" if secrets else "clean",
                 "secrets": secrets,
                 "total_secrets": len(secrets),
@@ -109,7 +109,7 @@ class SecretsTool(BaseTool):
         except subprocess.TimeoutExpired:
             logger.error(f"Secrets scan timed out (>300s) on targets: {files_to_scan}")
             return {
-                "tool": "detect-secrets",
+                "tool": "secrets",
                 "status": "error",
                 "error": "Timeout: Secrets scan took too long (>300s).",
                 "debug_targets": str(files_to_scan),

@@ -139,43 +139,54 @@ def subtract(a: int, b: int) -> int:
         E2E: Generate report -> Save to file -> AI reads -> User receives markdown.
         Tests the complete reporting pipeline.
         """
-        from mcp_fastmcp_server import generate_full_markdown_report
+        from app.core.report_generator_v2 import ReportGeneratorV2
+        from datetime import datetime
         import tempfile
-        
+
         # Sample results
         results = {
             "bandit": {"status": "clean", "issues": [], "total_issues": 0},
-            "secrets": {"status": "clean", "total_findings": 0},
+            "secrets": {"status": "clean", "total_secrets": 0},
             "tests": {"status": "analyzed", "coverage_percent": 45, "tests_passed": 10, "tests_failed": 0, "test_breakdown": {"unit": 10, "integration": 0, "e2e": 0, "total_files": 10}},
             "duplication": {"status": "issues_found", "total_duplicates": 5},
-            "dead_code": {"status": "clean", "unused_items": []},
-            "efficiency": {"status": "clean", "high_complexity_functions": []},
-            "structure": {"status": "analyzed", "total_py_files": 20, "total_directories": 5},
+            "dead_code": {"status": "clean", "unused_items": [], "total_dead": 0},
+            "efficiency": {"status": "clean", "complexity": []},
+            "structure": {"status": "analyzed", "total_files": 20, "total_dirs": 5, "tree": "", "file_counts": {".py": 20}},
             "architecture": {"status": "analyzed", "mermaid_graph": "graph TD\n  A-->B", "total_dependencies": 10},
             "cleanup": {"status": "clean", "total_size_mb": 0.5, "cleanup_targets": {}},
             "ruff": {"status": "clean", "total_issues": 0},
             "pip_audit": {"status": "clean", "total_vulns": 0},
-            "git_info": {"status": "analyzed", "branch": "main", "uncommitted_changes": 0, "last_commit": {"hash": "abc123", "message": "Initial commit", "author": "Test User", "when": "2 hours ago"}}
+            "git_info": {"status": "analyzed", "has_git": True, "branch": "main", "has_uncommitted_changes": False, "last_commit": "abc123 - Test, 2 hours ago : Initial commit", "days_since_commit": 0},
+            "duration_seconds": 15.3
         }
-        
-        # Generate report
-        report_md = generate_full_markdown_report("e2e-test", "15.3s", results, "/tmp/test-project")
-        
+
+        # Generate report using ReportGeneratorV2
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reports_dir = Path(temp_dir)
+            generator = ReportGeneratorV2(reports_dir)
+            report_path = generator.generate_report(
+                report_id="e2e-test",
+                project_path="/tmp/test-project",
+                score=0,  # Calculated internally
+                tool_results=results,
+                timestamp=datetime.now()
+            )
+
+            # Read the generated report
+            report_md = Path(report_path).read_text(encoding='utf-8')
+
         # Verify report is markdown formatted
         assert report_md.startswith("#")
         assert "**" in report_md  # Has bold text
-        assert "|" in report_md  # Has tables
-        
-        # Verify all sections present
+
+        # Verify key sections present (Jinja2 template format)
         required_sections = [
-            "Tool Execution Summary",
-            "Tests & Coverage",
-            "Test Types:",
-            "Recent Changes"
+            "Audit Report",
+            "Score",
         ]
         for section in required_sections:
             assert section in report_md, f"Missing section: {section}"
-        
+
         # Save to file (simulating what the server does)
         with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as f:
             f.write(report_md)

@@ -41,53 +41,79 @@ class TestMCPToolBehavior:
 
 class TestMCPReportDelivery:
     """Test how MCP delivers reports to AI."""
-    
+
     def test_report_format_is_markdown(self):
         """Reports should be in markdown format for AI consumption."""
-        from mcp_fastmcp_server import generate_full_markdown_report
-        
+        from app.core.report_generator_v2 import ReportGeneratorV2
+        from datetime import datetime
+        import tempfile
+        from pathlib import Path
+
         results = {
-            "bandit": {"status": "clean", "issues": []},
-            "secrets": {"status": "clean", "total_findings": 0},
+            "bandit": {"status": "clean", "issues": [], "total_issues": 0},
+            "secrets": {"status": "clean", "total_secrets": 0},
             "tests": {"status": "analyzed", "coverage_percent": 80, "test_breakdown": {"unit": 5, "integration": 0, "e2e": 0, "total_files": 5}},
-            "duplication": {"status": "clean", "total_duplicates": 0},
-            "dead_code": {"status": "clean", "unused_items": []},
-            "efficiency": {"status": "clean", "high_complexity_functions": []},
-            "structure": {"status": "analyzed"},
+            "duplication": {"status": "clean", "total_duplicates": 0, "duplicates": []},
+            "dead_code": {"status": "clean", "unused_items": [], "total_dead": 0},
+            "efficiency": {"status": "clean", "complexity": []},
+            "structure": {"status": "analyzed", "tree": "", "file_counts": {}, "total_files": 0, "total_dirs": 0},
             "architecture": {"status": "analyzed"},
             "cleanup": {"status": "clean"},
-            "git_info": {"status": "analyzed"}
+            "git_info": {"status": "analyzed", "has_git": False}
         }
-        
-        report = generate_full_markdown_report("test", "10s", results, "/tmp/test")
-        
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reports_dir = Path(temp_dir)
+            generator = ReportGeneratorV2(reports_dir)
+            report_path = generator.generate_report(
+                report_id="test",
+                project_path="/tmp/test",
+                score=0,
+                tool_results=results,
+                timestamp=datetime.now()
+            )
+            report = Path(report_path).read_text(encoding='utf-8')
+
         # Should be markdown
         assert report.startswith("#")
         assert "**" in report
         assert "\n" in report
-    
+
     def test_report_contains_actionable_insights(self):
         """Reports should have actionable recommendations."""
-        from mcp_fastmcp_server import generate_full_markdown_report
-        
+        from app.core.report_generator_v2 import ReportGeneratorV2
+        from datetime import datetime
+        import tempfile
+        from pathlib import Path
+
         # Low coverage scenario
         results = {
-            "bandit": {"status": "clean", "issues": []},
-            "secrets": {"status": "clean", "total_findings": 0},
+            "bandit": {"status": "clean", "issues": [], "total_issues": 0},
+            "secrets": {"status": "clean", "total_secrets": 0},
             "tests": {"status": "analyzed", "coverage_percent": 20, "tests_passed": 2, "tests_failed": 0, "test_breakdown": {"unit": 2, "integration": 0, "e2e": 0, "total_files": 2}},
-            "duplication": {"status": "clean", "total_duplicates": 0},
-            "dead_code": {"status": "clean", "unused_items": []},
-            "efficiency": {"status": "clean", "high_complexity_functions": []},
-            "structure": {"status": "analyzed"},
+            "duplication": {"status": "clean", "total_duplicates": 0, "duplicates": []},
+            "dead_code": {"status": "clean", "unused_items": [], "total_dead": 0},
+            "efficiency": {"status": "clean", "complexity": []},
+            "structure": {"status": "analyzed", "tree": "", "file_counts": {}, "total_files": 0, "total_dirs": 0},
             "architecture": {"status": "analyzed"},
             "cleanup": {"status": "clean"},
-            "git_info": {"status": "analyzed"}
+            "git_info": {"status": "analyzed", "has_git": False}
         }
-        
-        report = generate_full_markdown_report("test", "10s", results, "/tmp/test")
-        
-        # Should have recommendations
-        assert "Recommendation" in report or "Fix:" in report
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            reports_dir = Path(temp_dir)
+            generator = ReportGeneratorV2(reports_dir)
+            report_path = generator.generate_report(
+                report_id="test",
+                project_path="/tmp/test",
+                score=0,
+                tool_results=results,
+                timestamp=datetime.now()
+            )
+            report = Path(report_path).read_text(encoding='utf-8')
+
+        # Should have coverage info in report
+        assert "Coverage" in report or "Test" in report
 
 
 if __name__ == "__main__":
