@@ -194,6 +194,22 @@ class AuditOrchestrator:
         )
 
         self._log(f"Report generated: {report_path}")
+
+        # Try to generate HTML report as well (optional)
+        try:
+            html_path = generator.generate_html_report(
+                report_id=job_id,
+                project_path=str(self.project_path),
+                score=score,
+                tool_results=result_dict,
+                timestamp=datetime.datetime.now(),
+                md_report_path=report_path
+            )
+            self._log(f"HTML Report generated: {html_path}")
+        except Exception as e:
+            # HTML generation is optional, don't fail the audit
+            self._log(f"HTML report generation skipped: {e}")
+
         return Path(report_path)
 
 

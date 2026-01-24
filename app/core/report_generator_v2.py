@@ -305,7 +305,8 @@ class ReportGeneratorV2:
         score: int,
         tool_results: Dict[str, Any],
         timestamp: datetime,
-        scanned_files: List[str] = None
+        scanned_files: List[str] = None,
+        md_report_path: str = None
     ) -> str:
         """
         Generate an HTML audit report with styling.
@@ -317,32 +318,39 @@ class ReportGeneratorV2:
             tool_results: Raw results from all audit tools
             timestamp: Report generation timestamp
             scanned_files: Optional list of files that were scanned
+            md_report_path: Optional path to existing markdown report to avoid regeneration
 
         Returns:
             Path to the generated HTML report file
         """
         try:
-            import markdown
-
-            # First generate the markdown report
-            md_report_path = self.generate_report(
-                report_id=report_id,
-                project_path=project_path,
-                score=score,
-                tool_results=tool_results,
-                timestamp=timestamp,
-                scanned_files=scanned_files
-            )
+            if not md_report_path:
+                # First generate the markdown report
+                md_report_path = self.generate_report(
+                    report_id=report_id,
+                    project_path=project_path,
+                    score=score,
+                    tool_results=tool_results,
+                    timestamp=timestamp,
+                    scanned_files=scanned_files
+                )
 
             # Read the markdown content
             with open(md_report_path, 'r', encoding='utf-8') as f:
                 md_content = f.read()
 
             # Convert to HTML
-            html_body = markdown.markdown(
-                md_content,
-                extensions=['tables', 'fenced_code', 'toc']
-            )
+            try:
+                import markdown
+                html_body = markdown.markdown(
+                    md_content,
+                    extensions=['tables', 'fenced_code', 'toc']
+                )
+            except ImportError:
+                # Fallback to markdown-it-py if available (preferred by rich)
+                from markdown_it import MarkdownIt
+                md = MarkdownIt('commonmark', {'breaks': True, 'html': True}).enable('table')
+                html_body = md.render(md_content)
 
             # Calculate score for styling
             score_breakdown = ScoringEngine.calculate_score(tool_results)
@@ -494,8 +502,8 @@ class ReportGeneratorV2:
             return str(html_path)
 
         except ImportError:
-            logger.warning("markdown package not installed, falling back to markdown-only")
-            return self.generate_report(
+            logger.warning("Neither markdown nor markdown-it-py installed, skipping HTML generation")
+            return md_report_path or self.generate_report(
                 report_id, project_path, score, tool_results, timestamp, scanned_files
             )
         except Exception as e:
