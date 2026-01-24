@@ -199,6 +199,22 @@ class AnalyzerAgent:
                     scanned_files=scanned_files  # Pass file list for validation
                 )
                 logger.info(f"Report generated: {report_path}")
+
+                # Try to generate HTML report as well (optional)
+                try:
+                    html_path = self.report_generator.generate_html_report(
+                        report_id=report_id,
+                        project_path=str(path),
+                        score=score,
+                        tool_results=results_dict,
+                        timestamp=datetime.now(),
+                        scanned_files=scanned_files,
+                        md_report_path=report_path
+                    )
+                    logger.info(f"HTML Report generated: {html_path}")
+                except Exception as e:
+                    logger.warning(f"HTML report generation skipped: {e}")
+
             except Exception as e:
                 logger.error(f"Failed to generate report: {e}")
         

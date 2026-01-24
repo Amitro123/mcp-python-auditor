@@ -1,6 +1,6 @@
 """Structure analysis tool - Directory tree and file statistics."""
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 from collections import defaultdict
 from app.core.base_tool import BaseTool
 import logging
@@ -33,11 +33,23 @@ class StructureTool(BaseTool):
             file_counts = self._count_files_by_extension(project_path)
             total_files = sum(file_counts.values())
             
+            # Calculate Py files specifically
+            total_py_files = file_counts.get('.py', 0)
+
+            # Calculate top directories
+            top_directories = self._get_top_directories(project_path)
+
+            # Calculate total lines (of code)
+            total_lines = self._count_total_lines(project_path)
+
             return {
                 "tree": tree,
                 "file_counts": file_counts,
                 "total_files": total_files,
-                "total_dirs": self._count_directories(project_path)
+                "total_py_files": total_py_files,
+                "total_dirs": self._count_directories(project_path),
+                "total_lines": total_lines,
+                "top_directories": top_directories
             }
         except Exception as e:
             logger.error(f"Structure analysis failed: {e}")
@@ -133,3 +145,42 @@ class StructureTool(BaseTool):
                     continue
                 count += 1
         return count
+
+    def _get_top_directories(self, path: Path) -> List[str]:
+        """Get list of top-level directories."""
+        try:
+            ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
+            dirs = []
+            for item in path.iterdir():
+                if item.is_dir() and item.name.lower() not in ignored_lower and not item.name.startswith('.'):
+                    dirs.append(item.name)
+            return sorted(dirs)
+        except Exception:
+            return []
+
+    def _count_total_lines(self, path: Path) -> int:
+        """Count total lines of code in non-ignored files."""
+        total_lines = 0
+        ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
+
+        # Limit to common text extensions to avoid reading binary files
+        text_extensions = {
+            '.py', '.js', '.ts', '.html', '.css', '.md', '.txt',
+            '.json', '.yml', '.yaml', '.toml', '.xml', '.c', '.cpp',
+            '.h', '.java', '.go', '.rs', '.php', '.rb', '.sh'
+        }
+
+        for item in path.rglob('*'):
+            if item.is_file():
+                if any(p.lower() in ignored_lower for p in item.parts):
+                    continue
+
+                if item.suffix.lower() in text_extensions:
+                    try:
+                        # Count lines without loading full file into memory
+                        with open(item, 'rb') as f:
+                            total_lines += sum(1 for _ in f)
+                    except (OSError, UnicodeDecodeError):
+                        continue
+
+        return total_lines
