@@ -13,3 +13,7 @@
 ❌ Rejected: Raw data access in Jinja2 templates (`{{ raw_results.tool.attr }}`) → Reason: Fragile when tools are optional or fail. Raises UndefinedError. Use normalized context instead.
 ✅ Approved: Normalized Context for Reporting → Pattern: Middleware layer (`report_context.py`) that guarantees default values and structure before rendering templates.
 ✅ Approved: Robust Status Lists in Tests → Pattern: When asserting status (e.g. `assert status in valid_list`), ensure list covers all possible states (e.g. `cleanup_available`, `not_a_repo`).
+
+## Session: 2026-01-24 - Fix StructureTool Path Filtering
+### Learned
+✅ Approved: Relative path filtering for recursive tools → Pattern: When implementing tools like recursive globs (`rglob`), filter based on `item.relative_to(root)` rather than absolute `item.parts`, to support projects nested inside ignored directories (e.g. `scratch`).
