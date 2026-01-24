@@ -102,10 +102,13 @@ class IncrementalEngine:
             logger.info(f"Running INCREMENTAL audit: {changes.summary()}")
             result = await self._run_incremental_audit(tools, changes)
             result.mode = 'incremental'
-            # Estimate time saved (rough heuristic: 90% of full audit time)
-            result.time_saved_seconds = result.duration_seconds * 9  # Saved ~90%
         
         result.duration_seconds = time.time() - start_time
+
+        if result.mode == 'incremental':
+            # Estimate time saved (rough heuristic: 90% of full audit time)
+            result.time_saved_seconds = result.duration_seconds * 9  # Saved ~90%
+
         result.cache_stats = self.result_cache.get_cache_stats()
         
         # Update file index after successful audit
@@ -126,12 +129,12 @@ class IncrementalEngine:
         for tool_name, tool in tools.items():
             tool_start = time.time()
             try:
-                if callable(tool):
-                    # It's a function
-                    tool_result = tool(self.project_path)
-                elif hasattr(tool, 'analyze'):
+                if hasattr(tool, 'analyze'):
                     # It's a tool instance
                     tool_result = tool.analyze(self.project_path)
+                elif callable(tool):
+                    # It's a function
+                    tool_result = tool(self.project_path)
                 else:
                     logger.warning(f"Unknown tool type for {tool_name}")
                     continue
@@ -173,10 +176,12 @@ class IncrementalEngine:
                 if tool_name in self.FULL_RUN_TOOLS:
                     # Always run full for these tools
                     logger.info(f"Running {tool_name} (full run required)")
-                    if callable(tool):
+                    if hasattr(tool, 'analyze'):
+                        tool_result = tool.analyze(self.project_path)
+                    elif callable(tool):
                         tool_result = tool(self.project_path)
                     else:
-                        tool_result = tool.analyze(self.project_path)
+                        raise ValueError(f"Unknown tool type for {tool_name}")
                 else:
                     # Incremental tool - only analyze changed files
                     logger.info(f"Running {tool_name} (incremental: {len(changes.changed_files)} files)")

@@ -167,17 +167,18 @@ class TestRemoteAuditCloning:
             mock_temp.return_value.__enter__.return_value = mock_temp_path
             
             with patch('subprocess.run') as mock_run:
-                # Mock FileNotFoundError (git not found)
-                mock_run.side_effect = FileNotFoundError("git not found")
-                
-                from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
-                
-                result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
-                result = json.loads(result_json)
-                
-                assert result["status"] == "error"
-                assert "git" in result["error"].lower()
-                assert "install" in result["suggestion"].lower()
+                with patch('shutil.which', return_value=None):
+                    # Mock FileNotFoundError (git not found)
+                    mock_run.side_effect = FileNotFoundError("git not found")
+
+                    from mcp_fastmcp_server import _audit_remote_repo_logic as audit_remote_repo
+
+                    result_json = audit_remote_repo("https://github.com/user/repo.git", "main")
+                    result = json.loads(result_json)
+
+                    assert result["status"] == "error"
+                    assert "git" in result["error"].lower()
+                    assert "install" in result["suggestion"].lower()
 
 
 class TestRemoteAuditExecution:
