@@ -8,6 +8,12 @@
 
 ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead code, efficiency issues, and security risks, generating actionable markdown reports with **realistic scores** and **comprehensive insights**.
 
+> **🚀 NEW in v3.0:** [**Architecture Overhaul**](docs/ARCHITECTURE_V3.md) - **Major Refactoring Completed!**
+> **🏗️ Modular Design:** Server reduced by 38% (1113 lines), logic migrated to 15 dedicated Tool classes.
+> **⚡ Performance:** 95.8s → 3.4s with caching (-97%).
+> **🧩 AuditOrchestrator:** Centralized, robust audit management.
+> **🛠️ Unified Tool Interface:** Consistent behavior across all analysis tools.
+
 > **🚀 NEW in v2.7:** [**Performance Optimization Suite**](docs/OPTIMIZATION_ARCHITECTURE.md) - **35-880x faster** audits with caching & Ruff!  
 > **⚡ Intelligent Caching:** Instant results (0.1s) for unchanged code with smart file-based invalidation  
 > **🔥 Ruff Comprehensive:** Single tool replaces 6+ linters (Bandit, pycodestyle, isort, pyflakes, McCabe, pydocstyle)  
@@ -30,11 +36,12 @@ ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead co
 
 ## 🚀 Features
 
-### **14 Extensible Analysis Tools**
+### **15 Extensible Analysis Tools**
 | Tool | Description |
 |------|-------------|
 | **📁 Structure** | Directory tree visualization and file statistics |
 | **🏗️ Architecture** | Mermaid dependency graphs with subgraph grouping |
+| **📝 Typing** | Type hint coverage analysis |
 | **🎭 Duplication** | 6-line block hashing to detect code duplication |
 | **☠️ Dead Code** | Unused functions, classes, and imports (Vulture) |
 | **⚡ Efficiency** | Cyclomatic complexity analysis (Radon) |
@@ -57,7 +64,7 @@ ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead co
 * **🚦 PR Gatekeeper:** Delta-based auditing - scans ONLY changed files (3-5x faster than full audit)
 * **✨ Agentic Dependency Installation:** AI automatically detects missing tools and asks user permission to install
 * **📊 Realistic Scoring Algorithm:** Exponential penalties for low coverage (9% = -40 points, not -10!)  
-* **📋 Tool Execution Summary:** Comprehensive table showing status of all 14 tools at a glance
+* **📋 Tool Execution Summary:** Comprehensive table showing status of all 15 tools at a glance
 * **🧪 Test Type Detection:** Automatically categorizes tests as Unit, Integration, or E2E
 * **🔄 Recent Changes Tracking:** Shows last commit, author, time, and uncommitted changes
 * **⏱️ Timeout Protection:** All subprocess calls protected with timeouts to prevent hangs
@@ -75,13 +82,13 @@ graph TD
     User["👤 User / AI Agent"] -->|1. Request Audit| API["📡 MCP Server API"]
     
     subgraph "Orchestration Layer"
-        API --> Agent["🤖 Analyzer Agent"]
-        Agent -->|2. Dispatch| Tools
+        API --> Orchestrator["🎹 AuditOrchestrator"]
+        Orchestrator -->|2. Dispatch| Tools
     end
     
     subgraph "Tool Execution Engine"
         direction TB
-        Tools{"🛠️ Analysis Tools"}
+        Tools{"🛠️ 15 Analysis Tools"}
         
         Tools -->|Static Analysis| AST["AST Parsers"]
         AST --> Structure & Architecture
@@ -107,7 +114,7 @@ graph TD
     MD -->|5. Return Context| User
     
     style User fill:#f9f,stroke:#333,stroke-width:2px
-    style Agent fill:#bbf,stroke:#333,stroke-width:2px
+    style Orchestrator fill:#bbf,stroke:#333,stroke-width:2px
     style MD fill:#ff9,stroke:#333,stroke-width:2px
 ```
 
@@ -308,7 +315,7 @@ The score (0-100) uses **strict, realistic weights** to avoid false positives:
 Every generated report includes:
 
 ### 1. **Tool Execution Summary**
-A comprehensive table showing the status of all 12 analysis tools:
+A comprehensive table showing the status of all 15 analysis tools:
 
 | Tool | Status | Details |
 |------|--------|----------|
@@ -355,7 +362,7 @@ mcp-python-auditor/
 ├── app/                  # Application source code (if using FastAPI mode)
 │   ├── agents/          # Analyzer orchestration
 │   ├── core/            # Base classes, config
-│   └── tools/           # 12 analysis tool implementations
+│   └── tools/           # 15 analysis tool implementations
 ├── docs/                # Documentation
 │   ├── MCP_USER_GUIDE.md           # Setup guide for Claude/Cursor
 │   ├── IMPLEMENTATION_SUMMARY.md   # Technical details
@@ -600,6 +607,12 @@ run_ruff_comprehensive_check(path="/project")
 ---
 
 ## 🎉 Recent Improvements
+
+**v3.0 - Major Refactoring (Jan 24, 2026)**
+- ✅ **Server Redesign**: Reduced `mcp_fastmcp_server.py` to 1113 lines (-38%)
+- ✅ **Tool Migration**: Completed migration of all 15 analysis tools to dedicated classes
+- ✅ **Performance**: 97% faster with advanced caching (95.8s → 3.4s)
+- ✅ **Orchestration**: Introduced `AuditOrchestrator` for robust workflow management
 
 **v2.9 - Architecture Refactor (Jan 23, 2026)**
 - ✅ **Modular Tool Architecture**: Migrated monolithic server functions to dedicated `Tool` classes
