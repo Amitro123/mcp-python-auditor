@@ -127,8 +127,8 @@ def run_self_audit():
             import shutil
             shutil.copy(audit_result.report_path, "SELF_AUDIT_REPORT.md")
             print("   (Copied to SELF_AUDIT_REPORT.md)")
-        except:
-            pass
+        except (IOError, OSError) as e:
+            print(f"   (Could not copy report: {e})")
     else:
         print("\n[FAIL] Report was not generated.")
 

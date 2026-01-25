@@ -14,7 +14,24 @@ from app.core.trend_analyzer import TrendAnalyzer
 logger = logging.getLogger(__name__)
 
 
-class AuditOrchestrator:
+class LoggingMixin:
+    """Mixin providing logging callback functionality for orchestrators."""
+
+    log_callback: Optional[Callable[[str], None]] = None
+
+    def set_log_callback(self, callback: Callable[[str], None]) -> None:
+        """Set a callback function for logging."""
+        self.log_callback = callback
+
+    def _log(self, message: str) -> None:
+        """Log a message using the callback if set."""
+        if self.log_callback:
+            self.log_callback(message)
+        else:
+            logger.info(message)
+
+
+class AuditOrchestrator(LoggingMixin):
     """
     Orchestrates full project audits with parallel tool execution and caching.
 
@@ -37,18 +54,7 @@ class AuditOrchestrator:
         self.project_path = Path(project_path).resolve()
         self.reports_dir = reports_dir
         self.cache_mgr = CacheManager(str(self.project_path), max_age_hours=cache_hours)
-        self.log_callback: Optional[Callable[[str], None]] = None
-
-    def set_log_callback(self, callback: Callable[[str], None]) -> None:
-        """Set a callback function for logging."""
-        self.log_callback = callback
-
-    def _log(self, message: str) -> None:
-        """Log a message using the callback if set."""
-        if self.log_callback:
-            self.log_callback(message)
-        else:
-            logger.info(message)
+        self.log_callback = None  # Inherited from LoggingMixin
 
     async def _run_with_log(self, name: str, coro) -> Dict[str, Any]:
         """Run a coroutine with logging and timing."""
@@ -222,15 +228,22 @@ def create_default_tool_runners(target: Path) -> Dict[str, Callable[[Path], Dict
     from app.tools.bandit_tool import BanditTool
     from app.tools.pip_audit_tool import PipAuditTool
 
+    from app.core.file_discovery import get_project_files
+
+    def run_with_files(tool_class, p):
+        """Run a tool with file discovery for better performance."""
+        files = get_project_files(p)
+        return tool_class().analyze(p, file_list=files)
+
     return {
         "bandit": lambda p: BanditTool().analyze(p),
         "secrets": lambda p: SecretsTool().analyze(p),
         "ruff": lambda p: FastAuditTool().analyze(p),
         "pip_audit": lambda p: PipAuditTool().analyze(p),
         "structure": lambda p: StructureTool().analyze(p),
-        "dead_code": lambda p: DeadcodeTool().analyze(p),
+        "dead_code": lambda p: run_with_files(DeadcodeTool, p),
         "efficiency": lambda p: FastAuditTool().analyze(p),
-        "duplication": lambda p: DuplicationTool().analyze(p),
+        "duplication": lambda p: run_with_files(DuplicationTool, p),
         "git_info": lambda p: GitTool().analyze(p),
         "cleanup": lambda p: CleanupTool().analyze(p),
         "architecture": lambda p: ArchitectureTool().generate_dependency_graph(p),

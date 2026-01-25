@@ -58,7 +58,7 @@ class FastAuditTool(BaseTool):
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=60,  # 1 minute max
+                timeout=180,  # 3 minutes max for larger projects
                 encoding='utf-8',
                 errors='replace'  # Handle encoding issues on Windows
             )
@@ -268,7 +268,7 @@ class FastAuditTool(BaseTool):
                 cwd=project_path,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=180,  # 3 minutes max for larger projects
                 encoding='utf-8',
                 errors='replace'
             )

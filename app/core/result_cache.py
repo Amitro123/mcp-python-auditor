@@ -160,139 +160,150 @@ class ResultCache:
 
         return merged
 
-    def _extract_file_results(self, tool_name: str, results: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract per-file results from tool output."""
-        file_results = {}
+    def _normalize_path(self, file_path: str) -> str:
+        """Normalize file path to relative path from project root."""
+        if not file_path:
+            return ""
+        try:
+            return str(Path(file_path).relative_to(self.project_path))
+        except ValueError:
+            return file_path
 
-        if tool_name == 'bandit':
-            # Bandit returns issues list with file paths
-            for issue in results.get('issues', []):
-                file_path = issue.get('filename', issue.get('file', ''))
-                if file_path:
-                    # Normalize to relative path
-                    try:
-                        rel_path = str(Path(file_path).relative_to(self.project_path))
-                    except ValueError:
-                        rel_path = file_path
-                    if rel_path not in file_results:
-                        file_results[rel_path] = []
-                    file_results[rel_path].append(issue)
+    def _group_items_by_file(
+        self,
+        items: list,
+        file_keys: tuple[str, ...] = ('file',)
+    ) -> Dict[str, list]:
+        """
+        Group items by their file path.
 
-        elif tool_name == 'ruff':
-            # Ruff returns issues with filename
-            for category in ['quality', 'style', 'imports', 'performance', 'security', 'complexity']:
-                for issue in results.get(category, []):
-                    file_path = issue.get('file', '')
-                    if file_path:
-                        try:
-                            rel_path = str(Path(file_path).relative_to(self.project_path))
-                        except ValueError:
-                            rel_path = file_path
-                        if rel_path not in file_results:
-                            file_results[rel_path] = []
-                        file_results[rel_path].append(issue)
+        Args:
+            items: List of items with file path info
+            file_keys: Keys to try for extracting file path (in order)
 
-        elif tool_name == 'deadcode':
-            # Dead code has items with file paths
-            for item in results.get('dead_code', []):
-                file_path = item.get('file', '')
-                if file_path:
-                    try:
-                        rel_path = str(Path(file_path).relative_to(self.project_path))
-                    except ValueError:
-                        rel_path = file_path
-                    if rel_path not in file_results:
-                        file_results[rel_path] = []
-                    file_results[rel_path].append(item)
+        Returns:
+            Dict mapping relative file paths to lists of items
+        """
+        file_results: Dict[str, list] = {}
 
-        elif tool_name == 'efficiency':
-            # Efficiency has high_complexity_functions
-            for func in results.get('high_complexity_functions', []):
-                file_path = func.get('file', '')
-                if file_path:
-                    try:
-                        rel_path = str(Path(file_path).relative_to(self.project_path))
-                    except ValueError:
-                        rel_path = file_path
-                    if rel_path not in file_results:
-                        file_results[rel_path] = []
-                    file_results[rel_path].append(func)
+        for item in items:
+            # Try each key to find file path
+            file_path = ""
+            for key in file_keys:
+                if file_path := item.get(key, ""):
+                    break
 
-        elif tool_name == 'secrets':
-            # Secrets has findings per file
-            for finding in results.get('findings', []):
-                file_path = finding.get('filename', finding.get('file', ''))
-                if file_path:
-                    try:
-                        rel_path = str(Path(file_path).relative_to(self.project_path))
-                    except ValueError:
-                        rel_path = file_path
-                    if rel_path not in file_results:
-                        file_results[rel_path] = []
-                    file_results[rel_path].append(finding)
+            if rel_path := self._normalize_path(file_path):
+                if rel_path not in file_results:
+                    file_results[rel_path] = []
+                file_results[rel_path].append(item)
 
         return file_results
 
+    def _extract_file_results(self, tool_name: str, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract per-file results from tool output."""
+        # Configuration: tool_name -> (result_keys, file_keys)
+        tool_config = {
+            'bandit': (['issues'], ('filename', 'file')),
+            'deadcode': (['dead_code'], ('file',)),
+            'efficiency': (['high_complexity_functions'], ('file',)),
+            'secrets': (['findings'], ('filename', 'file')),
+            'ruff': (['quality', 'style', 'imports', 'performance', 'security', 'complexity'], ('file',)),
+        }
+
+        if tool_name not in tool_config:
+            return {}
+
+        result_keys, file_keys = tool_config[tool_name]
+        file_results: Dict[str, list] = {}
+
+        # Collect all items from configured result keys
+        for key in result_keys:
+            items = results.get(key, [])
+            grouped = self._group_items_by_file(items, file_keys)
+
+            # Merge into file_results
+            for path, path_items in grouped.items():
+                if path not in file_results:
+                    file_results[path] = []
+                file_results[path].extend(path_items)
+
+        return file_results
+
+    def _flatten_items(self, file_results: Dict[str, Any]) -> List[Any]:
+        """Flatten file_results dict values into a single list."""
+        all_items = []
+        for items in file_results.values():
+            all_items.extend(items)
+        return all_items
+
+    def _aggregate_simple(
+        self,
+        file_results: Dict[str, Any],
+        tool: str,
+        count_key: str,
+        items_key: str,
+        status_found: str = 'issues_found',
+        limit: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Aggregate results for simple tools (bandit, deadcode, secrets)."""
+        all_items = self._flatten_items(file_results)
+        result = {
+            'tool': tool,
+            'status': status_found if all_items else 'clean',
+            count_key: len(all_items),
+            items_key: all_items[:limit] if limit else all_items
+        }
+        return result
+
+    def _aggregate_ruff(self, file_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Aggregate ruff results by category."""
+        categories = ['quality', 'style', 'imports', 'performance', 'security', 'complexity']
+        all_issues: Dict[str, list] = {cat: [] for cat in categories}
+
+        for issues in file_results.values():
+            for issue in issues:
+                category = issue.get('category', 'quality')
+                if category in all_issues:
+                    all_issues[category].append(issue)
+
+        total = sum(len(v) for v in all_issues.values())
+        return {
+            'tool': 'ruff',
+            'status': 'issues_found' if total > 0 else 'clean',
+            'total_issues': total,
+            **all_issues
+        }
+
+    def _aggregate_efficiency(self, file_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Aggregate efficiency results."""
+        all_funcs = self._flatten_items(file_results)
+        return {
+            'status': 'analyzed',
+            'total_high_complexity': len(all_funcs),
+            'high_complexity_functions': all_funcs
+        }
+
     def _aggregate_results(self, tool_name: str, file_results: Dict[str, Any]) -> Dict[str, Any]:
         """Re-aggregate results from per-file data."""
+        # Dispatch to tool-specific aggregators
+        aggregators = {
+            'bandit': lambda: self._aggregate_simple(
+                file_results, 'bandit', 'total_issues', 'issues', limit=50
+            ),
+            'ruff': lambda: self._aggregate_ruff(file_results),
+            'deadcode': lambda: self._aggregate_simple(
+                file_results, 'vulture', 'total_dead', 'dead_code', limit=30
+            ),
+            'efficiency': lambda: self._aggregate_efficiency(file_results),
+            'secrets': lambda: self._aggregate_simple(
+                file_results, 'detect-secrets', 'total_secrets', 'findings',
+                status_found='secrets_found'
+            ),
+        }
 
-        if tool_name == 'bandit':
-            all_issues = []
-            for issues in file_results.values():
-                all_issues.extend(issues)
-            return {
-                'tool': 'bandit',
-                'status': 'issues_found' if all_issues else 'clean',
-                'total_issues': len(all_issues),
-                'issues': all_issues[:50]  # Limit for report
-            }
-
-        elif tool_name == 'ruff':
-            all_issues = {'quality': [], 'style': [], 'imports': [], 'performance': [], 'security': [], 'complexity': []}
-            for issues in file_results.values():
-                for issue in issues:
-                    category = issue.get('category', 'quality')
-                    if category in all_issues:
-                        all_issues[category].append(issue)
-            total = sum(len(v) for v in all_issues.values())
-            return {
-                'tool': 'ruff',
-                'status': 'issues_found' if total > 0 else 'clean',
-                'total_issues': total,
-                **all_issues
-            }
-
-        elif tool_name == 'deadcode':
-            all_items = []
-            for items in file_results.values():
-                all_items.extend(items)
-            return {
-                'tool': 'vulture',
-                'status': 'issues_found' if all_items else 'clean',
-                'total_dead': len(all_items),
-                'dead_code': all_items[:30]
-            }
-
-        elif tool_name == 'efficiency':
-            all_funcs = []
-            for funcs in file_results.values():
-                all_funcs.extend(funcs)
-            return {
-                'status': 'analyzed',
-                'total_high_complexity': len(all_funcs),
-                'high_complexity_functions': all_funcs
-            }
-
-        elif tool_name == 'secrets':
-            all_findings = []
-            for findings in file_results.values():
-                all_findings.extend(findings)
-            return {
-                'tool': 'detect-secrets',
-                'status': 'secrets_found' if all_findings else 'clean',
-                'total_secrets': len(all_findings),
-                'findings': all_findings
-            }
+        if tool_name in aggregators:
+            return aggregators[tool_name]()
 
         # Default: return file results as-is
         return {'file_results': file_results}

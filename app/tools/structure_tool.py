@@ -32,12 +32,17 @@ class StructureTool(BaseTool):
             tree = self._generate_tree(project_path, max_depth=4)
             file_counts = self._count_files_by_extension(project_path)
             total_files = sum(file_counts.values())
-            
+            total_py_files = file_counts.get('.py', 0)
+
             return {
+                "status": "analyzed",
                 "tree": tree,
+                "directory_tree": tree,  # Alias for template compatibility
                 "file_counts": file_counts,
                 "total_files": total_files,
-                "total_dirs": self._count_directories(project_path)
+                "total_py_files": total_py_files,
+                "total_dirs": self._count_directories(project_path),
+                "top_directories": self._get_top_directories(project_path)
             }
         except Exception as e:
             logger.error(f"Structure analysis failed: {e}")
@@ -113,23 +118,45 @@ class StructureTool(BaseTool):
 
         for item in path.rglob('*'):
             if item.is_file():
-                # Use centralized blacklist from BaseTool (case-insensitive)
-                if any(p.lower() in ignored_lower for p in item.parts):
+                # Check RELATIVE path parts only (not full system path)
+                try:
+                    rel_parts = item.relative_to(path).parts
+                except ValueError:
+                    continue
+
+                if any(p.lower() in ignored_lower for p in rel_parts):
                     continue
 
                 ext = item.suffix if item.suffix else '[no extension]'
                 counts[ext] += 1
 
         return dict(counts)
-    
+
     def _count_directories(self, path: Path) -> int:
         """Count total directories."""
         count = 0
         ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
         for item in path.rglob('*'):
             if item.is_dir():
-                # Use centralized blacklist from BaseTool (case-insensitive)
-                if any(p.lower() in ignored_lower for p in item.parts):
+                # Check RELATIVE path parts only (not full system path)
+                try:
+                    rel_parts = item.relative_to(path).parts
+                except ValueError:
+                    continue
+
+                if any(p.lower() in ignored_lower for p in rel_parts):
                     continue
                 count += 1
         return count
+
+    def _get_top_directories(self, path: Path) -> list:
+        """Get list of top-level directories."""
+        ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
+        top_dirs = []
+
+        for item in path.iterdir():
+            if item.is_dir():
+                if item.name.lower() not in ignored_lower and not item.name.startswith('.'):
+                    top_dirs.append(item.name)
+
+        return sorted(top_dirs)

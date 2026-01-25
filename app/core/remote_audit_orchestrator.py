@@ -8,14 +8,14 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable
 
-from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners
+from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners, LoggingMixin
 from app.core.scoring_engine import ScoringEngine
 from app.core.report_generator_v2 import ReportGeneratorV2
 
 logger = logging.getLogger(__name__)
 
 
-class RemoteAuditOrchestrator:
+class RemoteAuditOrchestrator(LoggingMixin):
     """
     Orchestrates audits of remote Git repositories.
 
@@ -36,18 +36,7 @@ class RemoteAuditOrchestrator:
         """
         self.reports_dir = reports_dir
         self.cache_hours = cache_hours
-        self.log_callback: Optional[Callable[[str], None]] = None
-
-    def set_log_callback(self, callback: Callable[[str], None]) -> None:
-        """Set a callback function for logging."""
-        self.log_callback = callback
-
-    def _log(self, message: str) -> None:
-        """Log a message using the callback if set."""
-        if self.log_callback:
-            self.log_callback(message)
-        else:
-            logger.info(message)
+        self.log_callback = None  # Inherited from LoggingMixin
 
     def validate_url(self, repo_url: str) -> Optional[Dict[str, Any]]:
         """

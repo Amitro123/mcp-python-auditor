@@ -82,7 +82,7 @@ class DeadcodeTool(BaseTool):
                         files=file_list,
                         chunk_size=50,
                         merge_json=False,  # Vulture outputs text, not JSON
-                        timeout=30  # Reduced from 120s for faster execution
+                        timeout=60  # 60s per chunk for reliability
                     )
                 else:
                     # Fallback: Run on project path with exclusions (Vulture handles recursion)
@@ -97,7 +97,7 @@ class DeadcodeTool(BaseTool):
                         cwd=project_path,
                         capture_output=True,
                         text=True,
-                        timeout=60,  # Reduced from 120s
+                        timeout=120,  # 2 minutes for full project scan
                         errors='replace'
                     )
                 

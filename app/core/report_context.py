@@ -457,15 +457,13 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
         msg = "⚠️ Test files found but no tests executed."
         warning = f"{warning} {msg}" if warning else msg
 
-    # FIXED: Get test_breakdown from JSON directly first to populate total_files
-    # The JSON already has the correct structure:
-    # "test_breakdown": {"unit": 49, "integration": 2, "e2e": 2, "total_files": 53}
-    raw_breakdown = data.get('test_breakdown', {})
-    
+    # Get raw_breakdown from JSON (may be None from TestsTool)
+    raw_breakdown = data.get('test_breakdown') or {}
+
     # Check raw_breakdown for files if total_files (from total_test_files) is 0
     if total_files == 0:
         total_files = raw_breakdown.get('total_files', 0)
-    
+
     # Validation: Coverage reported but no test files
     if coverage_percent > 0 and total_files == 0:
         msg = "⚠️ Coverage reported but no test files detected."
@@ -476,24 +474,23 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
     total_tests = len(test_list)
 
     # Count actual tests by category (based on path in test_list)
+    # Handle various path formats: tests/e2e/..., e2e/..., /e2e/...
     unit_tests_count = 0
     integration_tests_count = 0
     e2e_tests_count = 0
 
     for test_id in test_list:
-        test_path = test_id.lower()
-        if '/integration/' in test_path or 'integration' in test_path:
+        test_path = test_id.lower().replace('\\', '/')
+        # Check for integration tests (path contains /integration/ or starts with integration/)
+        if '/integration/' in test_path or test_path.startswith('integration/'):
             integration_tests_count += 1
-        elif '/e2e/' in test_path or 'e2e' in test_path:
+        # Check for e2e tests (path contains /e2e/ or starts with e2e/)
+        elif '/e2e/' in test_path or test_path.startswith('e2e/'):
             e2e_tests_count += 1
         else:
             unit_tests_count += 1
 
-    # Get file breakdown from JSON (for backwards compatibility)
-    raw_breakdown = data.get('test_breakdown', {})
-
-    # Build test_breakdown with ACTUAL TEST COUNTS (not file counts)
-    # If we have test_list, use actual counts; otherwise fall back to file counts
+    # Build test_breakdown with ACTUAL TEST COUNTS
     test_breakdown = {
         'unit': unit_tests_count if total_tests > 0 else raw_breakdown.get('unit', 0),
         'integration': integration_tests_count if total_tests > 0 else raw_breakdown.get('integration', 0),
@@ -509,22 +506,30 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
         'total_files': raw_breakdown.get('total_files', total_files)
     }
 
+    # Determine has_* flags - use TestsTool booleans as fallback
+    has_unit = (test_breakdown['unit'] > 0 or file_breakdown['unit'] > 0
+                or data.get('has_unit_tests', False))
+    has_integration = (test_breakdown['integration'] > 0 or file_breakdown['integration'] > 0
+                       or data.get('has_integration_tests', False))
+    has_e2e = (test_breakdown['e2e'] > 0 or file_breakdown['e2e'] > 0
+               or data.get('has_e2e_tests', False))
+
     return {
         'available': bool(data),
         'coverage_percent': coverage_percent,
         'coverage_report': data.get('coverage_report', ''),
         'total_test_files': total_files,
-        'total_tests': total_tests,  # ADDED: actual test count
+        'total_tests': total_tests,
         'tests_passed': tests_passed,
         'tests_failed': tests_failed,
         'tests_skipped': tests_skipped,
         'total_executed': total_executed,
         'premature_stop': premature_stop,
-        'has_unit': test_breakdown['unit'] > 0 or file_breakdown['unit'] > 0,
-        'has_integration': test_breakdown['integration'] > 0 or file_breakdown['integration'] > 0,
-        'has_e2e': test_breakdown['e2e'] > 0 or file_breakdown['e2e'] > 0,
-        'test_breakdown': test_breakdown,  # Now contains actual test counts
-        'file_breakdown': file_breakdown,  # ADDED: file counts for reference
+        'has_unit': has_unit,
+        'has_integration': has_integration,
+        'has_e2e': has_e2e,
+        'test_breakdown': test_breakdown,
+        'file_breakdown': file_breakdown,
         'test_list': test_list,
         'warning': warning
     }
@@ -580,32 +585,54 @@ def _normalize_efficiency(raw_results: dict[str, Any]) -> dict[str, Any]:
     """Normalize efficiency analysis data."""
     data = _extract_tool_data(raw_results, "efficiency")
 
-    # Map high_complexity_functions to issues if needed
-    issues = data.get("issues", [])
+    # Handle FastAuditTool format (complexity list from ruff C901)
+    complexity_items = data.get("complexity", [])
     high_complexity_functions = data.get("high_complexity_functions", [])
 
+    # Convert FastAuditTool complexity items to high_complexity_functions format
+    if complexity_items and not high_complexity_functions:
+        import re
+        for item in complexity_items:
+            # Parse message like "`analyze_project` is too complex (14 > 10)"
+            message = item.get("message", "")
+            func_match = re.search(r"`(\w+)`", message)
+            complexity_match = re.search(r"\((\d+)\s*>", message)
+
+            func_name = func_match.group(1) if func_match else "unknown"
+            complexity_val = int(complexity_match.group(1)) if complexity_match else 0
+
+            high_complexity_functions.append({
+                "file": item.get("file", "").replace("\\", "/").split("/")[-1],
+                "name": func_name,
+                "function": func_name,
+                "complexity": complexity_val,
+                "line": item.get("line", 0),
+            })
+
+    # Map high_complexity_functions to issues
+    issues = data.get("issues", [])
     if not issues and high_complexity_functions:
         for func in high_complexity_functions:
             issues.append({
                 "type": "High Complexity",
                 "file": func.get("file", ""),
                 "line": func.get("line", ""),
-                "description": f"Complexity: {func.get('complexity', 0)} (Function: {func.get('function', '')})"
+                "description": f"Complexity: {func.get('complexity', 0)} (Function: {func.get('name', func.get('function', ''))})"
             })
 
     return {
-        "available": bool(data),
+        "available": bool(data) or bool(high_complexity_functions),
         "total_functions": data.get("total_functions_analyzed", 0),
-        "total_functions_analyzed": data.get("total_functions_analyzed", 0),  # ADDED: template compatibility
-        "total_high_complexity": len(high_complexity_functions),  # ADDED: for template
-        "high_complexity_functions": high_complexity_functions,  # ADDED: for template
+        "total_functions_analyzed": data.get("total_functions_analyzed", 0),
+        "total_high_complexity": len(high_complexity_functions),
+        "high_complexity_functions": high_complexity_functions,
         "average_complexity": data.get("average_complexity", 0),
         "average_maintainability": data.get("average_maintainability", 0),
         "maintainability_grade": data.get("maintainability_grade", "N/A"),
         "files_analyzed": data.get("files_analyzed", 0),
-        "performance_issues": data.get("performance_issues", []),  # ADDED: for template
+        "performance_issues": data.get("performance_issues", []),
         "issues": issues,
-        "has_issues": len(issues) > 0
+        "has_issues": len(issues) > 0 or len(high_complexity_functions) > 0
     }
 
 

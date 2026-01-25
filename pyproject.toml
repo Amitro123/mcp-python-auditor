@@ -40,7 +40,7 @@ ignore = [
     "PLR0913", # Too many arguments in function call (refactor later)
     "PLR0912", # Too many branches (refactor later)
     "PLR0915", # Too many statements (refactor later)
-    "C901",    # Too complex (let C90 handle complexity)
+    # NOTE: C901 (McCabe complexity) is NOT ignored - reports high-complexity functions
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -174,33 +174,43 @@ class TestsTool(BaseTool):
             )
             
             logger.debug(f"pytest collect output:\n{result.stdout}")
-            
+
             # Parse test IDs from tree structure
-            # Format: <Module test_api.py> followed by <Function test_name> or <Coroutine test_name>
+            # Format: <Package tests> / <Package e2e> / <Module test_file.py> / <Function test_name>
             test_list = []
+            current_path = []  # Track Package hierarchy
             current_module = None
-            
+
             for line in result.stdout.splitlines():
                 line = line.strip()
-                
-                # Extract module name
-                if '<Module ' in line and '.py>' in line:
-                    # Format: <Module test_api.py>
-                    module_match = line.split('<Module ')[1].split('>')[0]
-                    current_module = module_match
-                
+
+                # Track Package hierarchy for path building
+                if '<Package ' in line and '>' in line:
+                    pkg_name = line.split('<Package ')[1].split('>')[0]
+                    # Determine nesting level by indentation
+                    indent = len(line) - len(line.lstrip())
+                    # Adjust path based on indentation (2 spaces per level)
+                    level = indent // 2
+                    current_path = current_path[:level]
+                    current_path.append(pkg_name)
+
+                # Extract module name with full path
+                elif '<Module ' in line and '.py>' in line:
+                    module_name = line.split('<Module ')[1].split('>')[0]
+                    # Build full module path from packages + module
+                    current_module = '/'.join(current_path + [module_name])
+
                 # Extract test functions/coroutines
                 elif current_module and ('<Function ' in line or '<Coroutine ' in line):
-                    # Format: <Function test_name> or <Coroutine test_name>
                     if '<Function ' in line:
                         test_name = line.split('<Function ')[1].split('>')[0]
                     else:
                         test_name = line.split('<Coroutine ')[1].split('>')[0]
-                    
-                    # Build full test ID: tests/test_api.py::test_root_endpoint
-                    test_id = f"tests/{current_module}::{test_name}"
+
+                    # Build full test ID: tests/e2e/test_audit_workflows.py::test_complete
+                    test_id = f"{current_module}::{test_name}"
                     test_list.append(test_id)
-            
+
             logger.info(f"Collected {len(test_list)} tests")
             return test_list
             
@@ -208,11 +218,167 @@ class TestsTool(BaseTool):
             logger.warning(f"Failed to collect test names: {e}")
             return []
     
+    def _build_pytest_command(
+        self, project_path: Path, venv_python: Path
+    ) -> tuple[list[str], Path]:
+        """
+        Build the pytest command with coverage arguments.
+
+        Returns:
+            Tuple of (command list, test directory path)
+        """
+        python_cmd = str(venv_python)
+
+        # Detect source directories for coverage
+        source_dirs = ['.'] if (project_path / 'pyproject.toml').exists() else []
+        if not source_dirs:
+            if (project_path / 'app').is_dir():
+                source_dirs.append('app')
+            if (project_path / 'src').is_dir():
+                source_dirs.append('src')
+            if not source_dirs:
+                source_dirs = ['.']
+
+        # Build coverage args
+        cov_args = []
+        for src in source_dirs:
+            cov_args.extend(['--cov', src])
+
+        # Determine test directory
+        test_dir = project_path / 'tests'
+        if not test_dir.is_dir():
+            test_dir = project_path / 'test'
+        if not test_dir.is_dir():
+            test_dir = project_path
+
+        cmd = [
+            python_cmd, '-m', 'pytest', str(test_dir),
+            *cov_args,
+            '--cov-report=term-missing',
+            '--cov-config=pyproject.toml',
+            '-q', '--color=no',
+            '--ignore=node_modules', '--ignore=venv', '--ignore=.venv',
+            '--ignore=dist', '--ignore=build', '--ignore=.git',
+            '--ignore=frontend', '--ignore=playwright-report',
+            '--ignore=test-results', '--ignore=*.txt',
+        ]
+
+        return cmd, test_dir
+
+    def _execute_pytest(
+        self, cmd: list[str], project_path: Path
+    ) -> tuple[str, str, int]:
+        """
+        Execute pytest command and return output.
+
+        Returns:
+            Tuple of (stdout, stderr, return_code)
+        """
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(project_path)
+
+        logger.info(f"Running: {' '.join(cmd[:8])}...")
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=project_path,
+            env=env
+        )
+
+        return result.stdout, result.stderr, result.returncode
+
+    def _parse_test_results(self, output: str) -> Dict[str, int]:
+        """
+        Parse pytest summary line for passed/failed/skipped counts.
+
+        Args:
+            output: Combined stdout+stderr from pytest
+
+        Returns:
+            Dict with tests_passed, tests_failed, tests_skipped
+        """
+        results = {"tests_passed": 0, "tests_failed": 0, "tests_skipped": 0}
+
+        for line in output.splitlines():
+            line = line.strip()
+            # Look for pytest summary line
+            if '=' in line and ('passed' in line or 'failed' in line or 'error' in line):
+                if match := re.search(r'(\d+)\s*passed', line):
+                    results["tests_passed"] = int(match.group(1))
+                if match := re.search(r'(\d+)\s*failed', line):
+                    results["tests_failed"] = int(match.group(1))
+                if match := re.search(r'(\d+)\s*skipped', line):
+                    results["tests_skipped"] = int(match.group(1))
+                if match := re.search(r'(\d+)\s*error', line):
+                    results["tests_failed"] += int(match.group(1))
+
+                if results["tests_passed"] or results["tests_failed"]:
+                    logger.debug(f"Found test summary: {line}")
+                    break
+
+        return results
+
+    def _parse_coverage(self, output: str, stderr: str) -> Dict[str, Any]:
+        """
+        Parse coverage percentage and report from pytest output.
+
+        Args:
+            output: Combined stdout+stderr from pytest
+            stderr: stderr only (for error detection)
+
+        Returns:
+            Dict with coverage_percent, coverage_report, warning
+        """
+        result = {"coverage_percent": 0, "coverage_report": "", "warning": None}
+
+        # Check for missing pytest-cov
+        if "No module named" in stderr:
+            if "pytest_cov" in stderr or "coverage" in stderr:
+                result["warning"] = (
+                    "⚠️ MISSING: 'pytest-cov' not installed. Coverage unavailable."
+                )
+                logger.warning(result["warning"])
+                return result
+
+        # Try multiple regex patterns for coverage percentage
+        coverage_patterns = [
+            r"TOTAL\s+\d+\s+\d+\s+(\d+)%",              # Standard
+            r"TOTAL\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)%",  # With branches
+            r"TOTAL.*?(\d+)%",                          # Flexible
+            r"coverage:\s*(\d+)%",                      # Alternative
+        ]
+
+        for pattern in coverage_patterns:
+            if match := re.search(pattern, output, re.IGNORECASE):
+                result["coverage_percent"] = int(match.group(1))
+                logger.info(f"Found coverage {result['coverage_percent']}%")
+                break
+
+        # Fallback: find percentage near TOTAL/coverage keywords
+        if result["coverage_percent"] == 0:
+            for line in output.splitlines():
+                if 'total' in line.lower() or 'coverage' in line.lower():
+                    if match := re.search(r'(\d+)%', line):
+                        result["coverage_percent"] = int(match.group(1))
+                        break
+
+        # Extract coverage report table
+        if table_match := re.search(
+            r'(Name\s+Stmts\s+Miss.*?TOTAL.*?\d+%)', output, re.DOTALL
+        ):
+            result["coverage_report"] = table_match.group(1).strip()
+
+        return result
+
     def _run_tests_and_coverage(self, project_path: Path, venv_python: Path) -> Dict[str, Any]:
         """
         Run tests and coverage analysis.
-        
-        FIXED: Robust coverage parsing that handles multiple formats and edge cases.
+
+        Orchestrates command building, execution, and parsing.
+        Complexity reduced by extracting helper methods.
         """
         result_dict = {
             "coverage_percent": 0,
@@ -223,185 +389,29 @@ class TestsTool(BaseTool):
             "warning": None
         }
 
-        # Skip coverage/execution in test mode to avoid hanging
+        # Skip during pytest to avoid recursion
         if os.environ.get('PYTEST_CURRENT_TEST'):
             logger.debug("Skipping test execution during pytest run")
             return result_dict
 
+        # Quick check for test files
+        if not self._find_test_files(project_path):
+            logger.debug("No test files found, skipping execution")
+            return result_dict
+
         try:
-            # Quick check: if no test files found, return immediately
-            test_files = self._find_test_files(project_path)
-            if not test_files:
-                logger.debug("No test files found, skipping execution")
-                return result_dict
+            # Build and execute command
+            cmd, _ = self._build_pytest_command(project_path, venv_python)
+            stdout, stderr, _ = self._execute_pytest(cmd, project_path)
+            output = f"{stdout}\n{stderr}"
 
-            # Set PYTHONPATH
-            env = os.environ.copy()
-            env["PYTHONPATH"] = str(project_path)
+            # Parse results
+            test_results = self._parse_test_results(output)
+            coverage_results = self._parse_coverage(output, stderr)
 
-            python_cmd = str(venv_python)
-
-            # Detect source directories for coverage
-            # Use pyproject.toml config if available, otherwise detect common patterns
-            source_dirs = []
-
-            # Check for pyproject.toml coverage config first
-            pyproject = project_path / 'pyproject.toml'
-            if pyproject.exists():
-                # Let pyproject.toml handle source config via --cov-config
-                # Just use a simple --cov=. and let the config filter
-                source_dirs = ['.']
-            else:
-                # Fallback: detect common source directories
-                if (project_path / 'app').is_dir():
-                    source_dirs.append('app')
-                if (project_path / 'src').is_dir():
-                    source_dirs.append('src')
-                if not source_dirs:
-                    source_dirs = ['.']
-
-            # Build coverage args
-            cov_args = []
-            for src in source_dirs:
-                cov_args.extend(['--cov', src])
-
-            # Determine test directory - prefer tests/ if it exists
-            test_dir = project_path / 'tests'
-            if not test_dir.is_dir():
-                test_dir = project_path / 'test'
-            if not test_dir.is_dir():
-                test_dir = project_path  # Fallback to root
-
-            # Command to run tests AND coverage
-            cmd = [
-                python_cmd,
-                '-m', 'pytest',
-                str(test_dir),  # Run from tests/ directory, not project root
-                *cov_args,
-                '--cov-report=term-missing',
-                '--cov-config=pyproject.toml',  # Use project config for exclusions
-                '-q',
-                '--color=no',
-                '--ignore=node_modules',
-                '--ignore=venv',
-                '--ignore=.venv',
-                '--ignore=dist',
-                '--ignore=build',
-                '--ignore=.git',
-                '--ignore=frontend',
-                '--ignore=playwright-report',
-                '--ignore=test-results',
-                '--ignore=*.txt',  # Ignore text files
-            ]
-
-            logger.info(f"Running test & coverage command: {' '.join(cmd)}")
-
-            run_result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                cwd=project_path,
-                env=env
-            )
-
-            output = run_result.stdout + "\n" + run_result.stderr
-
-            # ============================================================
-            # 1. Parse Test Results (Passed/Failed/Skipped)
-            # ============================================================
-            # Search entire output (stdout + stderr) for summary line
-            # Format: "=== 172 passed, 1 skipped, 7 warnings in 76.93s ==="
-
-            summary_found = False
-
-            # Search all lines in combined output
-            for line in output.splitlines():
-                line = line.strip()
-                # Look for pytest summary line (contains === and test counts)
-                if '=' in line and ('passed' in line or 'failed' in line or 'error' in line):
-                    p = re.search(r'(\d+)\s*passed', line)
-                    f = re.search(r'(\d+)\s*failed', line)
-                    s = re.search(r'(\d+)\s*skipped', line)
-                    e = re.search(r'(\d+)\s*error', line)
-
-                    if p:
-                        result_dict["tests_passed"] = int(p.group(1))
-                        summary_found = True
-                    if f:
-                        result_dict["tests_failed"] = int(f.group(1))
-                        summary_found = True
-                    if s:
-                        result_dict["tests_skipped"] = int(s.group(1))
-                    if e:
-                        result_dict["tests_failed"] += int(e.group(1))
-                        summary_found = True
-
-                    if summary_found:
-                        logger.debug(f"Found test summary: {line}")
-                        break
-
-            if not summary_found:
-                logger.warning(f"Could not find test summary in output. Last 200 chars: {output[-200:]}")
-
-            # ============================================================
-            # 2. Parse Coverage - ROBUST MULTI-FORMAT DETECTION
-            # ============================================================
-            
-            # Check for common errors first
-            if "No module named" in run_result.stderr:
-                if "pytest_cov" in run_result.stderr or "coverage" in run_result.stderr:
-                    error_msg = (
-                        "⚠️ MISSING PREREQUISITE: 'pytest-cov' is not installed in the "
-                        "target project. Coverage cannot be calculated."
-                    )
-                    logger.warning(error_msg)
-                    result_dict["warning"] = error_msg
-
-            # Try multiple regex patterns for coverage percentage
-            coverage_patterns = [
-                r"TOTAL\s+\d+\s+\d+\s+(\d+)%",           # Standard format
-                r"TOTAL\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)%",  # With branches
-                r"TOTAL.*?(\d+)%",                       # Flexible format
-                r"coverage:\s*(\d+)%",                   # Alternative format
-                r"(\d+)%\s+coverage",                    # Reversed format
-            ]
-            
-            coverage_percent = None
-            for pattern in coverage_patterns:
-                match = re.search(pattern, output, re.IGNORECASE)
-                if match:
-                    coverage_percent = int(match.group(1))
-                    logger.info(f"Found coverage {coverage_percent}% using pattern: {pattern}")
-                    break
-            
-            # If still no match, try to find ANY percentage near "TOTAL" or "coverage"
-            if coverage_percent is None:
-                # Look for lines containing both a percentage and keywords
-                for line in output.splitlines():
-                    line_lower = line.lower()
-                    if ('total' in line_lower or 'coverage' in line_lower):
-                        percent_match = re.search(r'(\d+)%', line)
-                        if percent_match:
-                            coverage_percent = int(percent_match.group(1))
-                            logger.info(f"Found coverage {coverage_percent}% in line: {line.strip()}")
-                            break
-            
-            result_dict["coverage_percent"] = coverage_percent if coverage_percent is not None else 0
-            
-            if coverage_percent is None:
-                logger.warning(f"Could not parse coverage from output. First 500 chars:\n{output[:500]}")
-
-            # Extract full coverage report table
-            coverage_match = re.search(
-                r'(Name\s+Stmts\s+Miss.*?TOTAL.*?\d+%)',
-                output,
-                re.DOTALL
-            )
-            if coverage_match:
-                result_dict["coverage_report"] = coverage_match.group(1).strip()
-            elif result_dict["coverage_percent"] == 0:
-                result_dict["coverage_report"] = output[-300:]
+            # Merge into result dict
+            result_dict.update(test_results)
+            result_dict.update(coverage_results)
 
             return result_dict
 

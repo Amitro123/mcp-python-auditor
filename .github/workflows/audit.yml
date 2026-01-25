@@ -35,9 +35,37 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
         run: |
-          # Determine target branch (fallback to 'origin/main' if not a PR)
-          TARGET="origin/${{ github.base_ref || 'main' }}"
-          echo "🔍 Auditing changes against target: $TARGET"
-          
-          # Run the runner script
-          python ci_runner.py --branch "$TARGET"
+          echo "🔍 Running Python Auditor..."
+          python -c "
+import asyncio
+from pathlib import Path
+import sys
+
+from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners
+from app.core.scoring_engine import ScoringEngine
+
+async def main():
+    project = Path('.').resolve()
+    orchestrator = AuditOrchestrator(project, Path('reports'))
+
+    tool_runners = create_default_tool_runners(project)
+    results = await orchestrator.run_full_audit(tool_runners, 'ci-audit')
+
+    score_breakdown = ScoringEngine.calculate_score(results)
+    score = score_breakdown.final_score
+    grade = score_breakdown.grade
+
+    print(f'Score: {score}/100 ({grade})')
+    print(f'Security: -{score_breakdown.security_penalty}')
+    print(f'Testing: -{score_breakdown.testing_penalty}')
+    print(f'Quality: -{score_breakdown.quality_penalty}')
+
+    # Fail if score below threshold
+    if score < 70:
+        print(f'::error::Audit score {score} is below threshold (70)')
+        sys.exit(1)
+
+    print(f'::notice::Audit passed with score {score}/100')
+
+asyncio.run(main())
+"

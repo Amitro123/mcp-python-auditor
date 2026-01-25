@@ -12,12 +12,15 @@ class BaseTool(ABC):
     """Base class for all analysis tools."""
     
     # Centralized blacklist - ALL tools MUST respect this
+    # NOTE: Only include directories that should NEVER be scanned inside a project
+    # Do NOT include workspace directories like .gemini, scratch, etc.
     IGNORED_DIRECTORIES = {
         "__pycache__", "venv", ".venv", "env", ".env", "test-venv",  # Virtual Envs
         "node_modules", "site-packages", "dist", "build", "htmlcov",  # Artifacts
-        ".git", ".idea", ".vscode", ".gemini", "scratch", "antigravity",  # System
-        "fresh-install-test", ".pytest_cache", "pytest_cache", ".mypy_cache", ".tox",  # Test cache
-        "eggs", ".eggs", "lib", "lib64", "parts", "sdist", "wheels"  # More build artifacts
+        ".git", ".idea", ".vscode",  # IDE/VCS (not workspace dirs)
+        ".pytest_cache", "pytest_cache", ".mypy_cache", ".tox",  # Test cache
+        "eggs", ".eggs", "lib", "lib64", "parts", "sdist", "wheels",  # Build artifacts
+        ".ruff_cache", ".coverage", "reports", "backups"  # Tool outputs
     }
     
     def __init__(self, config: Optional[Any] = None):

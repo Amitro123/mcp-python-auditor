@@ -168,7 +168,8 @@ class FileTracker:
 
     def _compute_hash(self, file_path: Path) -> str:
         """Compute MD5 hash of file contents."""
-        hasher = hashlib.md5()
+        # usedforsecurity=False: MD5 used only for change detection, not cryptographic security
+        hasher = hashlib.md5(usedforsecurity=False)
         try:
             with open(file_path, 'rb') as f:
                 for chunk in iter(lambda: f.read(8192), b''):

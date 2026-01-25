@@ -203,99 +203,94 @@ def get_relevant_files(project_path: Path, tool_name: str) -> List[Path]:
 
 
 # ============================================================
-# COMPREHENSIVE RUFF - Replaces Multiple Tools
+# TOOL RUNNER HELPERS - Reduces code duplication
+# ============================================================
+
+def _run_simple_tool(tool_class, path: Path) -> dict:
+    """Generic helper to run a simple tool that just needs analyze(path)."""
+    tool = tool_class()
+    return tool.analyze(Path(path))
+
+
+def _run_tool_with_files(tool_class, path: Path, tool_name: str, error_extras: dict = None) -> dict:
+    """Helper to run tools that need file discovery first."""
+    try:
+        from app.core.file_discovery import get_project_files
+        target_path = Path(path).resolve()
+        files = get_project_files(target_path)
+        tool = tool_class()
+        return tool.analyze(target_path, file_list=files)
+    except Exception as e:
+        result = {"tool": tool_name, "status": "error", "error": str(e)}
+        if error_extras:
+            result.update(error_extras)
+        return result
+
+
+# ============================================================
+# TOOL RUNNERS
 # ============================================================
 
 def run_bandit(path: Path) -> dict:
-    """Run Bandit security analysis using BanditTool."""
+    """Run Bandit security analysis."""
     from app.tools.bandit_tool import BanditTool
-    tool = BanditTool()
-    return tool.analyze(Path(path))
+    return _run_simple_tool(BanditTool, path)
 
 
 def run_secrets(path: Path) -> dict:
-    """Run detect-secrets scan using SecretsTool."""
-    from app.tools.secrets_tool import SecretsTool
-    tool = SecretsTool()
-    return tool.analyze(Path(path))
+    """Run detect-secrets scan."""
+    return _run_simple_tool(SecretsTool, path)
 
 
 def run_ruff(path: Path) -> dict:
-    """Run Ruff linter using FastAuditTool."""
-    tool = FastAuditTool()
-    return tool.analyze(Path(path))
+    """Run Ruff linter."""
+    return _run_simple_tool(FastAuditTool, path)
 
 
 def run_pip_audit(path: Path) -> dict:
-    """Run pip-audit vulnerability scan using PipAuditTool."""
+    """Run pip-audit vulnerability scan."""
     from app.tools.pip_audit_tool import PipAuditTool
-    tool = PipAuditTool()
-    return tool.analyze(Path(path))
+    return _run_simple_tool(PipAuditTool, path)
 
 
 def run_structure(target: str) -> dict:
-    """Analyze project structure using StructureTool."""
-    tool = StructureTool()
-    return tool.analyze(Path(target))
+    """Analyze project structure."""
+    return _run_simple_tool(StructureTool, target)
 
 
 def run_dead_code(path: Path) -> dict:
-    """Run Vulture for dead code detection using Safety-First engine."""
-    try:
-        from app.core.file_discovery import get_project_files
-        from app.tools.deadcode_tool import DeadcodeTool
-        
-        target_path = Path(path).resolve()
-        files = get_project_files(target_path)
-        
-        tool = DeadcodeTool()
-        return tool.analyze(target_path, file_list=files)
-    except Exception as e:
-        return {"tool": "vulture", "status": "error", "error": str(e), "items": [], "total_dead_code": 0}
+    """Run Vulture for dead code detection."""
+    return _run_tool_with_files(DeadcodeTool, path, "vulture", {"items": [], "total_dead_code": 0})
 
 
 def run_efficiency(path: Path) -> dict:
     """Run FastAudit (Ruff) for complexity and performance checks."""
-    tool = FastAuditTool()
-    return tool.analyze(Path(path))
+    return _run_simple_tool(FastAuditTool, path)
 
 
 def run_duplication(path: Path) -> dict:
-    """Run duplication detection using Safety-First engine."""
-    try:
-        from app.core.file_discovery import get_project_files
-        from app.tools.duplication_tool import DuplicationTool
-        
-        target_path = Path(path).resolve()
-        files = get_project_files(target_path)
-        
-        tool = DuplicationTool()
-        return tool.analyze(target_path, file_list=files)
-    except Exception as e:
-        return {"tool": "duplication", "status": "error", "error": str(e)}
+    """Run duplication detection."""
+    return _run_tool_with_files(DuplicationTool, path, "duplication")
 
 
 def run_git_info(path: Path) -> dict:
-    """Get git repository information using GitTool."""
-    tool = GitTool()
-    return tool.analyze(Path(path))
+    """Get git repository information."""
+    return _run_simple_tool(GitTool, path)
 
 
 def run_cleanup_scan(path: Path) -> dict:
-    """Scan for cleanup opportunities using CleanupTool."""
+    """Scan for cleanup opportunities."""
     from app.tools.cleanup_tool import CleanupTool
-    tool = CleanupTool()
-    return tool.analyze(Path(path))
+    return _run_simple_tool(CleanupTool, path)
 
 
 def run_tests_coverage(path: Path) -> dict:
-    """Analyze tests using TestsTool."""
-    tool = TestsTool()
-    return tool.analyze(Path(path))
+    """Analyze tests."""
+    return _run_simple_tool(TestsTool, path)
 
 
 def run_architecture_visualizer(path: Path) -> dict:
-    """Generate a Mermaid.js dependency graph using ArchitectureTool."""
+    """Generate a Mermaid.js dependency graph."""
     tool = ArchitectureTool()
     return tool.generate_dependency_graph(Path(path))
 
