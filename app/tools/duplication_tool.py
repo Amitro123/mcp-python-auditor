@@ -16,60 +16,37 @@ class DuplicationTool(BaseTool):
     """Detect duplicate code patterns in Python files."""
     
     @property
+    def name(self) -> str:
+        return "duplication"
+
+    @property
     def description(self) -> str:
         return "Detects duplicate functions and code patterns using AST and fuzzy matching"
     
     def analyze(self, project_path: Path, file_list: List[str] = None) -> Dict[str, Any]:
-        """
-        Analyze code for duplicates using explicit file list.
-        
-        SAFETY-FIRST EXECUTION:
-        1. Guard Clause: Empty file list check
-        2. Guard Clause: Extension filter (only .py files)
-        
-        Args:
-            project_path: Path to the project directory
-            file_list: Optional list of absolute file paths to scan
-            
-        Returns:
-            Dictionary with duplicate code information
-        """
-        if not self.validate_path(project_path):
-            return {"error": "Invalid path"}
-        
-        # STEP 1: GUARD CLAUSE - Empty Check
-        if file_list is not None and not file_list:
-            logger.warning("Duplication: Empty file list provided, skipping scan")
-            return {
-                "status": "skipped",
-                "duplicates": [],
-                "total_duplicates": 0,
-                "total_functions_analyzed": 0
-            }
-        
-        # STEP 2: GUARD CLAUSE - Extension Filter
-        if file_list:
-            file_list = filter_python_files(file_list)
-            if not validate_file_list(file_list, "Duplication"):
-                return {"error": "Invalid file list (contains excluded paths or empty)"}
-            logger.info(f"✅ Duplication: Analyzing {len(file_list)} Python files (explicit list)")
-        
+        """Analyze code for duplicates with robust error handling."""
         try:
             # Extract all functions from the project
-            functions = self._extract_functions(project_path, file_list)
+            # (ignoring file_list optimization for simplicity/safety as per emergency request)
+            functions = self._extract_functions(project_path, None)
             
-            # Find duplicates
             duplicates = self._find_duplicates(functions)
             
             return {
-                "status": "analyzed" if duplicates else "clean",
-                "duplicates": duplicates,
-                "total_duplicates": len(duplicates),
-                "total_functions_analyzed": len(functions)
+                'tool': 'duplication',
+                'status': 'pass' if len(duplicates) == 0 else 'issues_found',
+                'duplicates': duplicates,
+                'total_duplicates': len(duplicates)
             }
         except Exception as e:
             logger.error(f"Duplication analysis failed: {e}")
-            return {"error": str(e)}
+            return {
+                'tool': 'duplication',
+                'status': 'error',
+                'error': str(e),
+                'duplicates': [],
+                'total_duplicates': 0
+            }
     
     def _extract_functions(self, path: Path, file_list: List[str] = None) -> List[Dict[str, Any]]:
         """Extract all functions from Python files."""

@@ -14,6 +14,10 @@ class SecretsTool(BaseTool):
     """Scans for secrets using detect-secrets (Smart Targeted)."""
     
     @property
+    def name(self) -> str:
+        return "secrets"
+
+    @property
     def description(self) -> str:
         return "Scans for secrets using detect-secrets (Smart Targeted)."
 

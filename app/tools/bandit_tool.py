@@ -16,6 +16,10 @@ class BanditTool(BaseTool):
     DEFAULT_TIMEOUT = 120  # seconds
 
     @property
+    def name(self) -> str:
+        return "security"
+
+    @property
     def description(self) -> str:
         return "Runs Bandit security linter to find security vulnerabilities in Python code"
 

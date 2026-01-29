@@ -1,11 +1,4 @@
 """Jinja2-based report generator for audit results.
-
-This module replaces manual string concatenation with professional template rendering.
-Benefits:
-- Eliminates "N/A" bugs through data normalization
-- Cleaner separation of data and presentation
-- Easier to maintain and extend
-- Type-safe context building
 """
 from datetime import datetime
 from pathlib import Path
@@ -14,7 +7,7 @@ import logging
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.core.report_context import build_report_context
-from app.core.scoring_engine import ScoringEngine, ScoreBreakdown
+from app.core.scoring_engine import ScoringEngine
 from app.core.report_validator import ReportValidator
 
 logger = logging.getLogger(__name__)
@@ -104,10 +97,6 @@ class ReportGeneratorV2:
     def _calculate_total_duration(self, tool_results: Dict[str, Any]) -> float | None:
         """
         Calculate total duration from individual tool execution times.
-
-        Handles multiple formats:
-        - execution_time_ms: milliseconds (from JSON-first architecture)
-        - duration_s: seconds (from parallel audit)
         """
         total_ms = 0
         found_any = False
@@ -143,24 +132,15 @@ class ReportGeneratorV2:
         scanned_files: List[str] = None
     ) -> str:
         """
-        Generate an audit report using Jinja2 template rendering with pre-calculated scores.
-        
-        Args:
-            report_id: Unique report identifier
-            project_path: Path to the project being audited
-            score: Overall audit score (0-100) - DEPRECATED, will be calculated
-            tool_results: Raw results from all audit tools
-            timestamp: Report generation timestamp
-            scanned_files: Optional list of files that were scanned
-            
-        Returns:
-            Path to the generated report file
+        Generate an audit report using Jinja2 template rendering.
         """
         try:
             # Step 1: Calculate scores using deterministic engine (NOT LLM!)
             logger.info("Calculating scores using ScoringEngine...")
-            score_breakdown = ScoringEngine.calculate_score(tool_results)
-            logger.info(f"Score calculated: {score_breakdown.final_score}/100 ({score_breakdown.grade})")
+            score_data = ScoringEngine.calculate_score(tool_results)
+            final_score = score_data['total_score']
+            grade = score_data['grade']
+            logger.info(f"Score calculated: {final_score}/100 ({grade})")
             
             # Step 2: Build normalized context
             logger.info("Building normalized report context...")
@@ -168,78 +148,43 @@ class ReportGeneratorV2:
             # Extract duration from tool_results if available
             duration = tool_results.get('duration_seconds') or tool_results.get('duration')
             if isinstance(duration, str):
-                # Try to parse string duration (e.g., "12.34s")
                 try:
                     duration = float(duration.rstrip('s'))
                 except (ValueError, AttributeError):
                     duration = None
 
-            # If no duration at root, calculate from individual tool execution times
-            if duration is None:
-                duration = self._calculate_total_duration(tool_results)
-            
             context = build_report_context(
                 raw_results=tool_results,
                 project_path=project_path,
-                score=score_breakdown.final_score,  # Use calculated score
+                score=final_score,  # Use calculated score
                 report_id=report_id,
                 timestamp=timestamp,
-                duration=duration  # ADDED: pass duration parameter
+                duration=duration
             )
             
+            # Add raw results for template access
+            context["raw_results"] = tool_results
             
-            # Debug logging to identify data structure issues
-            logger.debug(f"tool_results keys: {list(tool_results.keys())}")
-            if 'tests' in tool_results:
-                logger.debug(f"tests type: {type(tool_results.get('tests'))}")
-            
-            # Safe extraction with type validation
-            tests_data = tool_results.get("tests", {})
-            if isinstance(tests_data, dict):
-                coverage = tests_data.get("coverage_percent", 0)
-            else:
-                coverage = 0
-                logger.warning(f"Tests data is not a dict: {type(tests_data)}")
+            # VALIDATION STEP
+            try:
+                from app.core.report_models import TemplateContext
+                validated = TemplateContext(**context)
+                context = validated.model_dump()
+                logger.info("✅ Report context validated successfully against schema")
+            except Exception as e:
+                logger.error(f"❌ Template validation failed: {e}")
+                # Save raw context for debugging
+                debug_path = self.reports_dir / f"debug_context_{report_id}.json"
+                import json
+                with open(debug_path, 'w', encoding='utf-8') as f:
+                    json.dump(context, f, indent=2, default=str)
+                logger.error(f"Dumped invalid context to {debug_path}")
+                raise
 
-            bandit_data = tool_results.get("bandit", {})
-            if isinstance(bandit_data, dict):
-                bandit_issues = bandit_data.get("total_issues", 0)
-            else:
-                bandit_issues = 0
-                logger.warning(f"Bandit data is not a dict: {type(bandit_data)}")
-
-            secrets_data = tool_results.get("secrets", {})
-            if isinstance(secrets_data, dict):
-                secrets_count = secrets_data.get("total_secrets", 0)
-            else:
-                secrets_count = 0
-                logger.warning(f"Secrets data is not a dict: {type(secrets_data)}")
-
-            # Pre-classified severities (prevent hallucination)
-            context.update({
-                # Calculated scores - these WON'T change!
-                "score": score_breakdown.final_score,
-                "grade": score_breakdown.grade,
-                "security_penalty": score_breakdown.security_penalty,
-                "quality_penalty": score_breakdown.quality_penalty,
-                "testing_penalty": score_breakdown.testing_penalty,
-                
-                "coverage_severity": _get_coverage_severity(coverage),
-                "security_severity": _get_security_severity(bandit_issues, secrets_count),
-                
-                # Template-specific fields
-                "repo_name": Path(project_path).resolve().name,
-                "repo_name": Path(project_path).resolve().name,
-                # "duration": "PRESERVED_FROM_CONTEXT", # Don't overwrite correct duration from build_report_context
-                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                
-                # Raw results for template access
-                "raw_results": tool_results,
-            })
             
             # Step 4: Load template
             logger.info("Loading Jinja2 template...")
-            template = self.env.get_template('audit_report_v3.md.j2')  # Use new template
+            template = self.env.get_template('audit_report_v3.md.j2')
             
             # Step 5: Render report
             logger.info("Rendering report...")
@@ -247,10 +192,9 @@ class ReportGeneratorV2:
             
             # Step 6: Validation
             validator = ReportValidator()
-            errors = validator.validate_consistency(tool_results, report_content, score_breakdown)
+            errors = validator.validate_consistency(tool_results, report_content, score_data)
             if errors:
                 logger.warning(f"⚠️ Report inconsistencies detected: {errors}")
-                # Append warning to report
                 report_content += "\n\n---\n\n## ⚠️ Report Validation Warnings\n\n"
                 for error in errors:
                     report_content += f"- {error}\n"
@@ -278,14 +222,11 @@ class ReportGeneratorV2:
         try:
             from app.core.audit_validator import validate_report_integrity
             
-            # Read the generated report
             with open(report_path, 'r', encoding='utf-8') as f:
                 report_text = f.read()
             
-            # Generate validation section
             validation_section = validate_report_integrity(report_text, scanned_files)
             
-            # Append validation to report
             with open(report_path, 'a', encoding='utf-8') as f:
                 f.write("\n\n---\n\n")
                 f.write(validation_section)
@@ -309,17 +250,6 @@ class ReportGeneratorV2:
     ) -> str:
         """
         Generate an HTML audit report with styling.
-
-        Args:
-            report_id: Unique report identifier
-            project_path: Path to the project being audited
-            score: Overall audit score (0-100) - will be recalculated
-            tool_results: Raw results from all audit tools
-            timestamp: Report generation timestamp
-            scanned_files: Optional list of files that were scanned
-
-        Returns:
-            Path to the generated HTML report file
         """
         try:
             import markdown
@@ -345,9 +275,9 @@ class ReportGeneratorV2:
             )
 
             # Calculate score for styling
-            score_breakdown = ScoringEngine.calculate_score(tool_results)
-            score = score_breakdown.final_score
-            grade = score_breakdown.grade
+            score_data = ScoringEngine.calculate_score(tool_results)
+            score = score_data['total_score']
+            grade = score_data['grade']
 
             # Determine score color
             if score >= 90:
@@ -455,6 +385,7 @@ class ReportGeneratorV2:
             padding: 2rem;
             color: var(--text-muted);
             font-size: 0.875rem;
+            margin-top: 2rem;
         }}
         @media (max-width: 768px) {{
             body {{ padding: 1rem; }}
@@ -479,7 +410,8 @@ class ReportGeneratorV2:
             {html_body}
         </div>
         <div class="footer">
-            Generated by Python Auditor MCP Server
+            Generated by Python Auditor MCP Server <br>
+            <small>Simplification Mode Active</small>
         </div>
     </div>
 </body>

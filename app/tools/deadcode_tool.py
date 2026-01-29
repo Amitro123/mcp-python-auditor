@@ -16,136 +16,52 @@ class DeadcodeTool(BaseTool):
     """Detect unused code using Vulture library."""
     
     @property
+    def name(self) -> str:
+        return "deadcode"
+
+    @property
     def description(self) -> str:
         return "Detects unused functions, classes, variables, and imports using Vulture"
     
     def analyze(self, project_path: Path, file_list: List[str] = None) -> Dict[str, Any]:
-        """
-        Analyze code for dead/unused code using Vulture with explicit file list.
-        
-        SAFETY-FIRST EXECUTION:
-        1. Guard Clause: Empty file list check
-        2. Guard Clause: Extension filter (only .py files)
-        3. Windows Chunking: Prevent WinError 206
-        
-        Args:
-            project_path: Path to the project directory
-            file_list: Optional list of absolute file paths to scan
-            
-        Returns:
-            Dictionary with dead code information
-        """
-        if not self.validate_path(project_path):
-            return {"error": "Invalid path"}
-        
-        # STEP 1: GUARD CLAUSE - Empty Check
-        if file_list is not None and not file_list:
-            logger.warning("Vulture: Empty file list provided, skipping scan")
-            return {
-                "status": "skipped",
-                "dead_functions": [],
-                "dead_classes": [],
-                "dead_variables": [],
-                "unused_imports": [],
-                "total_dead": 0,
-                "confidence": "skipped",
-                "tool": "vulture"
-            }
-        
-        # STEP 2: GUARD CLAUSE - Extension Filter
-        if file_list:
-            file_list = filter_python_files(file_list)
-            # OPTIMIZATION: Skip test files (they often have intentional "unused" fixtures)
-            file_list = [f for f in file_list if '/tests/' not in f.replace('\\', '/') and not f.replace('\\', '/').startswith('tests/')]
-            if not validate_file_list(file_list, "Vulture"):
-                return {"error": "Invalid file list (contains excluded paths or empty)"}
-            # OPTIMIZATION: Limit files to avoid long execution times
-            MAX_FILES = 100
-            if len(file_list) > MAX_FILES:
-                logger.warning(f"Vulture: Limiting scan to {MAX_FILES} files (from {len(file_list)})")
-                file_list = file_list[:MAX_FILES]
-            logger.info(f"✅ Vulture: Analyzing {len(file_list)} Python files (explicit list)")
-        
+        """Analyze code for dead/unused code using Vulture."""
         try:
-            # Run vulture with JSON output using subprocess directly to handle exit codes
-            # Exit code 0: No dead code found
-            # Exit code 1: Dead code found (Valid success for us)
-            # Other codes: Error
-            try:
-                # Build command with explicit file list or directory
-                if file_list:
-                    # Use chunking for explicit file lists to avoid WinError 206
-                    base_cmd = [sys.executable, '-m', 'vulture', '--min-confidence', '80']
-                    
-                    result = run_tool_in_chunks(
-                        base_cmd=base_cmd,
-                        files=file_list,
-                        chunk_size=50,
-                        merge_json=False,  # Vulture outputs text, not JSON
-                        timeout=60  # 60s per chunk for reliability
-                    )
-                else:
-                    # Fallback: Run on project path with exclusions (Vulture handles recursion)
-                    cmd = [sys.executable, '-m', 'vulture', str(project_path), '--min-confidence', '80']
-                    
-                    # Add each ignored directory as exclusion
-                    for ignored_dir in self.IGNORED_DIRECTORIES:
-                        cmd.extend(['--exclude', ignored_dir])
-                        
-                    result = subprocess.run(
-                        cmd,
-                        cwd=project_path,
-                        capture_output=True,
-                        text=True,
-                        timeout=120,  # 2 minutes for full project scan
-                        errors='replace'
-                    )
-                
-                # Check return code
-                # Exit code 0: No dead code
-                # Exit code 1: Dead code found
-                # Exit code 3: Syntax error (still produces results)
-                if result.returncode not in [0, 1, 3]:
-                    if "not found" in result.stderr.lower():
-                        logger.warning("Vulture not installed, falling back to basic analysis")
-                        return self._fallback_analysis(project_path)
-                    else:
-                        # Only log legitimate errors (WinError 206 should be gone now)
-                        logger.error(f"Vulture failed with code {result.returncode}: {result.stderr}")
-                        return {"error": f"Vulture execution failed: {result.stderr}"}
-                
-                stdout = result.stdout
-                
-            except subprocess.TimeoutExpired:
-                 logger.error("Vulture timed out")
-                 return {"error": "Vulture timed out"}
-            except FileNotFoundError:
-                 logger.warning("Vulture command not found")
-                 return self._fallback_analysis(project_path)
+            # Run vulture with timeout
+            # Note: Explicitly using project path scan instead of file list for simplicity
+            excludes = "venv,.venv,dist,build,tests,.git,__pycache__,.gemini,node_modules"
             
-            # Parse vulture output
-            dead_items = self._parse_vulture_output(stdout)
+            result = subprocess.run(
+                [sys.executable, '-m', 'vulture', str(project_path), '--exclude', excludes],
+                capture_output=True,
+                text=True,
+                timeout=120  # 2 min max
+            )
             
-            # Categorize findings
-            dead_functions = [item for item in dead_items if item['type'] == 'function']
-            dead_classes = [item for item in dead_items if item['type'] == 'class']
-            dead_variables = [item for item in dead_items if item['type'] == 'variable']
-            unused_imports = [item for item in dead_items if item['type'] == 'import']
+            items = self._parse_vulture_output(result.stdout)
             
             return {
-                "status": "analyzed" if dead_items else "clean",
-                "dead_functions": dead_functions,
-                "dead_classes": dead_classes,
-                "dead_variables": dead_variables,
-                "unused_imports": unused_imports,
-                "total_dead": len(dead_items),
-                "confidence": "high",
-                "tool": "vulture"
+                'tool': 'deadcode',
+                'status': 'pass' if len(items) == 0 else 'issues_found',
+                'items': items,
+                'total_items': len(items)
             }
-        
+        except subprocess.TimeoutExpired:
+            logger.error("Vulture timeout")
+            return {
+                'tool': 'deadcode',
+                'status': 'timeout',
+                'items': [],
+                'total_items': 0
+            }
         except Exception as e:
-            logger.error(f"Dead code analysis failed: {e}")
-            return {"error": str(e)}
+            logger.error(f"Deadcode analysis failed: {e}")
+            return {
+                'tool': 'deadcode',
+                'status': 'error',
+                'error': str(e),
+                'items': [],
+                'total_items': 0
+            }
     
     def _parse_vulture_output(self, output: str) -> List[Dict[str, Any]]:
         """Parse vulture text output."""

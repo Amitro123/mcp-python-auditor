@@ -22,6 +22,10 @@ class CleanupTool(BaseTool):
     }
 
     @property
+    def name(self) -> str:
+        return "cleanup"
+
+    @property
     def description(self) -> str:
         return "Scans for cache directories and reclaimable disk space"
 
@@ -76,11 +80,12 @@ class CleanupTool(BaseTool):
                 "total_size_bytes": total_size_bytes,
                 "cleanup_targets": {k: v for k, v in cleanup_counts.items() if v > 0},
                 "items": items_found[:20],
-                "total_items": len(items_found)
+                "total_items": len(items_found),
+                "total_issues": len(items_found)  # Alias for scoring engine
             }
         except Exception as e:
             logger.error(f"Cleanup scan failed: {e}")
-            return {"tool": "cleanup", "status": "error", "error": str(e)}
+            return {"tool": "cleanup", "status": "error", "error": str(e), "total_issues": 0}
 
     def _get_dir_size(self, path: Path) -> int:
         """Calculate total size of a directory."""

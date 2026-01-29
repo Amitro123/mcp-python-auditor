@@ -17,3 +17,9 @@
 ## Session: 2026-01-24 - Fix StructureTool Path Filtering
 ### Learned
 ✅ Approved: Relative path filtering for recursive tools → Pattern: When implementing tools like recursive globs (`rglob`), filter based on `item.relative_to(root)` rather than absolute `item.parts`, to support projects nested inside ignored directories (e.g. `scratch`).
+
+## Session: 2026-01-29 - State Management Refactor
+### Learned
+✅ Approved: SQLite for State Management → Pattern: Use a lightweight, file-based DB (SQLite) for critical state persistence instead of in-memory dicts to ensure data safety during crashes.
+✅ Approved: Pydantic for Template Context → Pattern: Validate data passing to Jinja2 templates using Pydantic models to catch schema mismatches early and prevent "N/A" report bugs.
+✅ Approved: Immediate Persistence → Pattern: Save tool results to DB immediately upon completion (inside the orchestrator loop) rather than waiting for all tasks to finish.

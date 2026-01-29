@@ -24,10 +24,13 @@ class BaseTool(ABC):
     }
     
     def __init__(self, config: Optional[Any] = None):
-        self.name = self.__class__.__name__.replace('Tool', '').lower()
         self.version = "1.0.0"
         self.enabled = True
         self.config = config
+
+    @property
+    def name(self) -> str:
+        return self.__class__.__name__.replace('Tool', '').lower()
     
     @abstractmethod
     def analyze(self, project_path: Path) -> Dict[str, Any]:

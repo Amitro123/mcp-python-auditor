@@ -26,6 +26,10 @@ class FastAuditTool(BaseTool):
     """Comprehensive code audit using Ruff (replaces Bandit, Radon, Isort)."""
     
     @property
+    def name(self) -> str:
+        return "quality"
+        
+    @property
     def description(self) -> str:
         return "Fast comprehensive audit using Ruff (security, complexity, quality)"
     

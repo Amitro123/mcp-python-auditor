@@ -296,8 +296,8 @@ def run_architecture_visualizer(path: Path) -> dict:
 
 
 async def run_audit_background(job_id: str, path: str):
-    """Run a full audit in the background using AuditOrchestrator."""
-    from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners
+    """Run a full audit in the background using simplified AuditOrchestrator."""
+    from app.core.audit_orchestrator import AuditOrchestrator
 
     log(f"[Job {job_id}] Starting FULL AUDIT on {path}...")
     JOBS[job_id] = {"status": "running", "start_time": time.time()}
@@ -307,16 +307,14 @@ async def run_audit_background(job_id: str, path: str):
     try:
         # Initialize orchestrator
         orchestrator = AuditOrchestrator(target, REPORTS_DIR)
-        orchestrator.set_log_callback(lambda msg: log(f"[Job {job_id}] {msg}"))
+        
+        # Run audit (Synchronous now)
+        # We wrap in to_thread to keep the event loop unblocked
+        result_dict = await asyncio.to_thread(orchestrator.run_audit)
 
-        # Get default tool runners
-        tool_runners = create_default_tool_runners(target)
-
-        # Run audit
-        result_dict = await orchestrator.run_full_audit(tool_runners, job_id)
-
-        # Generate report
-        report_path = orchestrator.generate_report(job_id, result_dict)
+        # Result dict already contains report path and score from orchestrator
+        report_path = result_dict.get('report_path')
+        score = result_dict.get('score')
 
         # Calculate duration
         duration = f"{time.time() - JOBS[job_id]['start_time']:.2f}s"
@@ -326,7 +324,7 @@ async def run_audit_background(job_id: str, path: str):
             "status": "completed",
             "duration": duration,
             "report_path": str(report_path),
-            "summary": f"{len(tool_runners)} tools completed. Report: {report_path.name}",
+            "summary": f"Audit completed. Score: {score}/100.",
             "result": result_dict
         }
         log(f"[Job {job_id}] COMPLETED. Report saved to: {report_path}")
@@ -412,7 +410,7 @@ If the user says **Yes**, please call the `install_dependencies` tool, and then 
     response = {
         "status": "started",
         "job_id": job_id,
-        "tools": ["Bandit (Security)", "Secrets", "Ruff (Quality)", "Pip-Audit (Dependencies)"],
+        "tools": ["Bandit (Security)", "Secrets", "Ruff (Quality)", "Pip-Audit (Dependencies)", "Tests", "Cleanup", "Duplication"],
         "message": "Full audit started. Use 'check_audit_status' with the job_id. Report auto-saves on completion."
     }
     
@@ -421,12 +419,38 @@ If the user says **Yes**, please call the `install_dependencies` tool, and then 
     return json.dumps(response, indent=2)
 
 
+from app.core.audit_state import AuditStateManager
+
+# ... existing imports ...
+
 @mcp.tool()
 def check_audit_status(job_id: str) -> str:
     """Checks the progress of a background audit job."""
+    # Try DB first (For backward compatibility or if future DB suppport added)
+    # The new simplified orchestrator does not use DB, so this will likely fail to find it,
+    # and fall through to JOBS memory check.
+    try:
+        state_manager = AuditStateManager()
+        progress = state_manager.get_audit_progress(job_id)
+        
+        if progress:
+            # It's a DB-backed audit
+            return json.dumps({
+                "job_id": job_id,
+                "status": progress['status'],
+                "progress_percent": round(progress['progress'], 1),
+                "completed_tools": progress['completed'],
+                "total_tools": progress['total'],
+                "is_complete": progress['is_complete'],
+                "message": "Audit in progress..." if not progress['is_complete'] else "Audit completed."
+            }, indent=2)
+    except Exception:
+        pass
+
+    # Fallback to Memory
     job = JOBS.get(job_id)
     if not job:
-        return json.dumps({"status": "error", "message": f"Job ID '{job_id}' not found. Available jobs: {list(JOBS.keys())}"})
+        return json.dumps({"status": "error", "message": f"Job ID '{job_id}' not found."})
     
     if job["status"] == "running":
         elapsed = time.time() - job["start_time"]
@@ -437,6 +461,41 @@ def check_audit_status(job_id: str) -> str:
         })
     
     return json.dumps(job, indent=2)
+
+@mcp.tool()
+def get_audit_progress(audit_id: str) -> str:
+    """
+    Check audit progress details - poll this every 5 seconds.
+    Directly queries the audit state database.
+    PROBABLY DEPRECATED in simplified mode, but kept for interface compatibility.
+    """
+    try:
+        state_manager = AuditStateManager()
+        progress = state_manager.get_audit_progress(audit_id)
+        
+        if not progress:
+            # Fallback to checking JOBS if not in DB
+             job = JOBS.get(audit_id)
+             if job:
+                 return json.dumps({
+                     'audit_id': audit_id,
+                     'status': job['status'],
+                     'is_complete': job['status'] == 'completed',
+                     'progress_percent': 100 if job['status'] == 'completed' else 0
+                 }, indent=2)
+             
+             return json.dumps({'error': 'Audit not found'}, indent=2)
+        
+        return json.dumps({
+            'audit_id': audit_id,
+            'total_tools': progress['total'],
+            'completed_tools': progress['completed'],
+            'progress_percent': progress['progress'],
+            'is_complete': progress['is_complete'],
+            'status': progress['status']
+        }, indent=2)
+    except Exception as e:
+         return json.dumps({'error': str(e)}, indent=2)
 
 
 def _auto_fix_dry_run(target: Path, files_to_delete: List[str]) -> str:
@@ -565,13 +624,21 @@ def save_report_to_file(job_id: str) -> str:
         return json.dumps({"status": "error", "message": f"Job is still {job['status']}. Wait for completion."})
     
     # Save File
-    report_path = REPORTS_DIR / f"SECURITY_REPORT_{job_id}.md"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
+    # Check if report_path is already in job, else construct it
+    report_path = job.get('report_path')
+    if not report_path:
+        report_path = REPORTS_DIR / f"SECURITY_REPORT_{job_id}.md"
     
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(f"# Audit Report {job_id}\n\nGenerated by Python Auditor.")
+    # Ensure directory
+    Path(report_path).parent.mkdir(parents=True, exist_ok=True)
     
-    log(f"Report saved to: {report_path}")
+    # If the report was already generated by orchestrator (which it is), we just return that path.
+    # But if not present (legacy), we write a stub.
+    if not Path(report_path).exists():
+         with open(report_path, "w", encoding="utf-8") as f:
+            f.write(f"# Audit Report {job_id}\n\nGenerated by Python Auditor.")
+    
+    log(f"Report available at: {report_path}")
     return json.dumps({"status": "success", "message": f"Report saved successfully!", "path": str(report_path)})
 
 
@@ -740,24 +807,26 @@ def _audit_remote_repo_logic(repo_url: str, branch: str = "main") -> str:
 @mcp.tool()
 def generate_full_report(path: str) -> str:
     """Runs ALL tools and generates a comprehensive Markdown report file using AuditOrchestrator."""
-    from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners
-
+    from app.core.audit_orchestrator import AuditOrchestrator
+    
     target_path = Path(path).resolve()
-    report_id = f"audit__{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-
+    
     # Use AuditOrchestrator for consistent execution
     orchestrator = AuditOrchestrator(target_path, REPORTS_DIR)
-    orchestrator.set_log_callback(log)
-
-    tool_runners = create_default_tool_runners(target_path)
-
-    # Run synchronously (wrap async)
-    result_dict = asyncio.run(orchestrator.run_full_audit(tool_runners, report_id))
-
-    # Generate report
-    report_path = orchestrator.generate_report(report_id, result_dict)
-
-    return f"Report generated successfully at: {report_path}"
+    
+    # Run synchronously
+    result_dict = orchestrator.run_audit()
+    
+    # Return path from result
+    report_path = result_dict.get('report_path')
+    
+    return json.dumps({
+        "status": "success",
+        "message": f"Full report generated at {report_path}",
+        "report_path": str(report_path),
+        "score": result_dict.get('score'),
+        "grade": result_dict.get('grade')
+    }, indent=2)
 
 
 @mcp.tool()

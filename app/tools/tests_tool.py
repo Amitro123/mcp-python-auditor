@@ -15,6 +15,10 @@ class TestsTool(BaseTool):
     """Analyze test coverage and organization."""
     
     @property
+    def name(self) -> str:
+        return "tests"
+
+    @property
     def description(self) -> str:
         return "Analyzes test coverage, test organization, and test types (unit/integration/e2e)"
     
@@ -50,12 +54,14 @@ class TestsTool(BaseTool):
             test_list = self._collect_test_names(project_path, venv_python)
             
             result = {
+                "tool": "tests",
                 "test_files": [str(f.relative_to(project_path)) for f in test_files],
                 "total_test_files": len(test_files),
                 "has_unit_tests": has_unit,
                 "has_integration_tests": has_integration,
                 "has_e2e_tests": has_e2e,
                 "coverage_percent": test_results["coverage_percent"],
+                "coverage": test_results["coverage_percent"],  # Alias for scoring engine
                 "coverage_report": test_results["coverage_report"],
                 "tests_passed": test_results["tests_passed"],
                 "tests_failed": test_results["tests_failed"],
