@@ -308,9 +308,8 @@ async def run_audit_background(job_id: str, path: str):
         # Initialize orchestrator
         orchestrator = AuditOrchestrator(target, REPORTS_DIR)
         
-        # Run audit (Synchronous now)
-        # We wrap in to_thread to keep the event loop unblocked
-        result_dict = await asyncio.to_thread(orchestrator.run_audit)
+        # Run audit (Async with parallel execution and DB updates)
+        result_dict = await orchestrator.run_audit_async(job_id)
 
         # Result dict already contains report path and score from orchestrator
         report_path = result_dict.get('report_path')
