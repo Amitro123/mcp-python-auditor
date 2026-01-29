@@ -119,3 +119,4 @@ SELF_AUDIT_REPORT.md
 
 # Audit history cache
 .audit_index/
+.audit_state.db*

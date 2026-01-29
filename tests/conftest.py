@@ -15,8 +15,7 @@ def analyzer(tmp_path):
 @pytest.fixture(scope="session", autouse=True)
 def setup_tools():
     """Discover and load tools before running tests."""
-    tools_dir = Path(__file__).parent.parent / "app" / "tools"
-    registry.discover_tools(tools_dir)
+    registry.discover_tools()
     yield
     # Cleanup if needed
 

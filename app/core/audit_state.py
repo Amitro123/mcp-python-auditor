@@ -49,6 +49,13 @@ class AuditStateManager:
                 except sqlite3.OperationalError:
                     conn.execute("ALTER TABLE audit_runs ADD COLUMN total_tools INTEGER")
                     conn.execute("ALTER TABLE audit_runs ADD COLUMN completed_tools INTEGER DEFAULT 0")
+
+                # Check for tool_results schema updates
+                try:
+                    conn.execute("SELECT status FROM tool_results LIMIT 1")
+                except sqlite3.OperationalError:
+                    conn.execute("ALTER TABLE tool_results ADD COLUMN status TEXT DEFAULT 'success'")
+                    conn.execute("ALTER TABLE tool_results ADD COLUMN error TEXT")
                 
                 conn.execute("""
                     CREATE TABLE IF NOT EXISTS tool_results (
