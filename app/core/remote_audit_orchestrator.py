@@ -1,23 +1,23 @@
 """Remote Audit Orchestrator - Handles git clone + audit for remote repositories."""
+
+import datetime
+import logging
 import shutil
 import subprocess
 import tempfile
 import time
-import datetime
-import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
+from typing import Any
 
-from app.core.audit_orchestrator import AuditOrchestrator, create_default_tool_runners, LoggingMixin
-from app.core.scoring_engine import ScoringEngine
+from app.core.audit_orchestrator import AuditOrchestrator, LoggingMixin, create_default_tool_runners
 from app.core.report_generator_v2 import ReportGeneratorV2
+from app.core.scoring_engine import ScoringEngine
 
 logger = logging.getLogger(__name__)
 
 
 class RemoteAuditOrchestrator(LoggingMixin):
-    """
-    Orchestrates audits of remote Git repositories.
+    """Orchestrates audits of remote Git repositories.
 
     Handles:
     - URL validation
@@ -27,20 +27,19 @@ class RemoteAuditOrchestrator(LoggingMixin):
     """
 
     def __init__(self, reports_dir: Path, cache_hours: float = 1.0):
-        """
-        Initialize remote audit orchestrator.
+        """Initialize remote audit orchestrator.
 
         Args:
             reports_dir: Directory to save reports
             cache_hours: How long to cache results
+
         """
         self.reports_dir = reports_dir
         self.cache_hours = cache_hours
         self.log_callback = None  # Inherited from LoggingMixin
 
-    def validate_url(self, repo_url: str) -> Optional[Dict[str, Any]]:
-        """
-        Validate repository URL.
+    def validate_url(self, repo_url: str) -> dict[str, Any] | None:
+        """Validate repository URL.
 
         Returns None if valid, error dict if invalid.
         """
@@ -48,19 +47,12 @@ class RemoteAuditOrchestrator(LoggingMixin):
             return {
                 "status": "error",
                 "error": "Invalid repository URL.",
-                "suggestion": "Use http://, https://, or git@ URL"
+                "suggestion": "Use http://, https://, or git@ URL",
             }
         return None
 
-    def clone_repository(
-        self,
-        repo_url: str,
-        branch: str,
-        target_path: Path,
-        timeout: int = 300
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Clone a repository to target path.
+    def clone_repository(self, repo_url: str, branch: str, target_path: Path, timeout: int = 300) -> dict[str, Any] | None:
+        """Clone a repository to target path.
 
         Returns None on success, error dict on failure.
         """
@@ -68,19 +60,13 @@ class RemoteAuditOrchestrator(LoggingMixin):
             return {
                 "status": "error",
                 "error": "Git not installed",
-                "suggestion": "Install git command line tool"
+                "suggestion": "Install git command line tool",
             }
 
         clone_cmd = ["git", "clone", "--depth", "1", "-b", branch, repo_url, str(target_path)]
 
         try:
-            result = subprocess.run(
-                clone_cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                stdin=subprocess.DEVNULL
-            )
+            result = subprocess.run(clone_cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
 
             if result.returncode != 0:
                 err = result.stderr
@@ -96,31 +82,26 @@ class RemoteAuditOrchestrator(LoggingMixin):
                 return {
                     "status": "error",
                     "error": f"Git clone failed: {err}",
-                    "suggestion": suggestion
+                    "suggestion": suggestion,
                 }
 
         except subprocess.TimeoutExpired:
             return {
                 "status": "error",
                 "error": f"Clone operation timeout (>{timeout}s)",
-                "suggestion": "Repository might be too large or network is slow."
+                "suggestion": "Repository might be too large or network is slow.",
             }
         except Exception as e:
             return {
                 "status": "error",
                 "error": f"Clone error: {e}",
-                "suggestion": "Unexpected error during clone."
+                "suggestion": "Unexpected error during clone.",
             }
 
         return None  # Success
 
-    async def audit_repository(
-        self,
-        repo_url: str,
-        branch: str = "main"
-    ) -> Dict[str, Any]:
-        """
-        Audit a remote Git repository.
+    async def audit_repository(self, repo_url: str, branch: str = "main") -> dict[str, Any]:
+        """Audit a remote Git repository.
 
         Args:
             repo_url: URL of the repository to audit
@@ -128,6 +109,7 @@ class RemoteAuditOrchestrator(LoggingMixin):
 
         Returns:
             Dictionary with audit results
+
         """
         self._log(f"Starting remote audit: {repo_url} (branch: {branch})")
 
@@ -152,7 +134,7 @@ class RemoteAuditOrchestrator(LoggingMixin):
                         "status": "warning",
                         "message": "No Python files found",
                         "repo_url": repo_url,
-                        "branch": branch
+                        "branch": branch,
                     }
 
                 # Create job ID
@@ -180,9 +162,9 @@ class RemoteAuditOrchestrator(LoggingMixin):
                     project_path=str(temp_path),
                     score=score,
                     tool_results=result_dict,
-                    timestamp=datetime.datetime.now()
+                    timestamp=datetime.datetime.now(),
                 )
-                report_md = Path(report_path).read_text(encoding='utf-8')
+                report_md = Path(report_path).read_text(encoding="utf-8")
 
                 return {
                     "status": "success",
@@ -199,14 +181,14 @@ class RemoteAuditOrchestrator(LoggingMixin):
                         "test_coverage": result_dict.get("tests", {}).get("coverage_percent", 0),
                         "duplicates": result_dict.get("duplication", {}).get("total_duplicates", 0),
                         "dead_code": result_dict.get("dead_code", {}).get("total_dead_code", 0),
-                        "high_complexity": len(result_dict.get("efficiency", {}).get("complexity", []))
-                    }
+                        "high_complexity": len(result_dict.get("efficiency", {}).get("complexity", [])),
+                    },
                 }
 
         except Exception as e:
             self._log(f"Remote audit failed: {e}")
             return {
                 "status": "error",
-                "error": f"Unexpected error: {str(e)}",
-                "suggestion": "Check system logs."
+                "error": f"Unexpected error: {e!s}",
+                "suggestion": "Check system logs.",
             }

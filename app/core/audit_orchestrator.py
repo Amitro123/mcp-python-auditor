@@ -1,10 +1,12 @@
 """Audit Orchestrator - Coordinates parallel tool execution with caching."""
+
 import asyncio
-import time
 import datetime
 import logging
+import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Dict, Any, Callable, List, Optional
+from typing import Any
 
 from app.core.cache_manager import CacheManager
 from app.core.report_generator_v2 import ReportGeneratorV2
@@ -17,7 +19,7 @@ logger = logging.getLogger(__name__)
 class LoggingMixin:
     """Mixin providing logging callback functionality for orchestrators."""
 
-    log_callback: Optional[Callable[[str], None]] = None
+    log_callback: Callable[[str], None] | None = None
 
     def set_log_callback(self, callback: Callable[[str], None]) -> None:
         """Set a callback function for logging."""
@@ -32,8 +34,7 @@ class LoggingMixin:
 
 
 class AuditOrchestrator(LoggingMixin):
-    """
-    Orchestrates full project audits with parallel tool execution and caching.
+    """Orchestrates full project audits with parallel tool execution and caching.
 
     This class handles:
     - Tool registration and execution
@@ -43,20 +44,20 @@ class AuditOrchestrator(LoggingMixin):
     """
 
     def __init__(self, project_path: Path, reports_dir: Path, cache_hours: float = 1.0):
-        """
-        Initialize the orchestrator.
+        """Initialize the orchestrator.
 
         Args:
             project_path: Path to the project being audited
             reports_dir: Directory to save reports
             cache_hours: How long to cache results (default 1 hour)
+
         """
         self.project_path = Path(project_path).resolve()
         self.reports_dir = reports_dir
         self.cache_mgr = CacheManager(str(self.project_path), max_age_hours=cache_hours)
         self.log_callback = None  # Inherited from LoggingMixin
 
-    async def _run_with_log(self, name: str, coro) -> Dict[str, Any]:
+    async def _run_with_log(self, name: str, coro) -> dict[str, Any]:
         """Run a coroutine with logging and timing."""
         self._log(f"Starting {name}...")
         try:
@@ -70,13 +71,9 @@ class AuditOrchestrator(LoggingMixin):
             self._log(f"Failed {name}: {e}")
             return {"tool": name.lower(), "status": "error", "error": str(e)}
 
-    def _create_cached_runner(
-        self,
-        name: str,
-        run_func: Callable[[Path], Dict[str, Any]],
-        patterns: List[str]
-    ) -> Callable:
+    def _create_cached_runner(self, name: str, run_func: Callable[[Path], dict[str, Any]], patterns: list[str]) -> Callable:
         """Create a cached async runner for a tool."""
+
         async def runner():
             cached = self.cache_mgr.get_cached_result(name, patterns)
             if cached:
@@ -84,24 +81,19 @@ class AuditOrchestrator(LoggingMixin):
             result = await asyncio.to_thread(run_func, self.project_path)
             self.cache_mgr.save_result(name, result, patterns)
             return result
+
         return runner
 
-    def _create_uncached_runner(
-        self,
-        run_func: Callable[[Path], Dict[str, Any]]
-    ) -> Callable:
+    def _create_uncached_runner(self, run_func: Callable[[Path], dict[str, Any]]) -> Callable:
         """Create an uncached async runner for a tool."""
+
         async def runner():
             return await asyncio.to_thread(run_func, self.project_path)
+
         return runner
 
-    async def run_full_audit(
-        self,
-        tool_runners: Dict[str, Callable[[Path], Dict[str, Any]]],
-        job_id: str
-    ) -> Dict[str, Any]:
-        """
-        Run a full audit with all registered tools.
+    async def run_full_audit(self, tool_runners: dict[str, Callable[[Path], dict[str, Any]]], job_id: str) -> dict[str, Any]:
+        """Run a full audit with all registered tools.
 
         Args:
             tool_runners: Dict mapping tool names to their run functions
@@ -109,6 +101,7 @@ class AuditOrchestrator(LoggingMixin):
 
         Returns:
             Dictionary with all tool results and metadata
+
         """
         start_time = time.time()
 
@@ -157,14 +150,8 @@ class AuditOrchestrator(LoggingMixin):
 
         return result_dict
 
-    def generate_report(
-        self,
-        job_id: str,
-        result_dict: Dict[str, Any],
-        record_trend: bool = True
-    ) -> Path:
-        """
-        Generate a report from audit results.
+    def generate_report(self, job_id: str, result_dict: dict[str, Any], record_trend: bool = True) -> Path:
+        """Generate a report from audit results.
 
         Args:
             job_id: Unique identifier for this audit
@@ -173,8 +160,9 @@ class AuditOrchestrator(LoggingMixin):
 
         Returns:
             Path to the generated report file
+
         """
-        self._log(f"Generating Markdown report with Jinja2...")
+        self._log("Generating Markdown report with Jinja2...")
 
         # Calculate score for trend recording
         score_breakdown = ScoringEngine.calculate_score(result_dict)
@@ -196,39 +184,38 @@ class AuditOrchestrator(LoggingMixin):
             project_path=str(self.project_path),
             score=score,
             tool_results=result_dict,
-            timestamp=datetime.datetime.now()
+            timestamp=datetime.datetime.now(),
         )
 
         self._log(f"Report generated: {report_path}")
         return Path(report_path)
 
 
-def create_default_tool_runners(target: Path) -> Dict[str, Callable[[Path], Dict[str, Any]]]:
-    """
-    Create the default set of tool runners for a full audit.
+def create_default_tool_runners(target: Path) -> dict[str, Callable[[Path], dict[str, Any]]]:
+    """Create the default set of tool runners for a full audit.
 
     Args:
         target: Path to the project being audited
 
     Returns:
         Dictionary mapping tool names to runner functions
+
     """
     # Import tools here to avoid circular imports
-    from app.tools.structure_tool import StructureTool
-    from app.tools.architecture_tool import ArchitectureTool
-    from app.tools.typing_tool import TypingTool
-    from app.tools.duplication_tool import DuplicationTool
-    from app.tools.deadcode_tool import DeadcodeTool
-    from app.tools.fast_audit_tool import FastAuditTool
-    from app.tools.secrets_tool import SecretsTool
-    from app.tools.tests_tool import TestsTool
-    from app.tools.gitignore_tool import GitignoreTool
-    from app.tools.git_tool import GitTool
-    from app.tools.cleanup_tool import CleanupTool
-    from app.tools.bandit_tool import BanditTool
-    from app.tools.pip_audit_tool import PipAuditTool
-
     from app.core.file_discovery import get_project_files
+    from app.tools.architecture_tool import ArchitectureTool
+    from app.tools.bandit_tool import BanditTool
+    from app.tools.cleanup_tool import CleanupTool
+    from app.tools.deadcode_tool import DeadcodeTool
+    from app.tools.duplication_tool import DuplicationTool
+    from app.tools.fast_audit_tool import FastAuditTool
+    from app.tools.git_tool import GitTool
+    from app.tools.gitignore_tool import GitignoreTool
+    from app.tools.pip_audit_tool import PipAuditTool
+    from app.tools.secrets_tool import SecretsTool
+    from app.tools.structure_tool import StructureTool
+    from app.tools.tests_tool import TestsTool
+    from app.tools.typing_tool import TypingTool
 
     def run_with_files(tool_class, p):
         """Run a tool with file discovery for better performance."""
@@ -253,24 +240,24 @@ def create_default_tool_runners(target: Path) -> Dict[str, Callable[[Path], Dict
     }
 
 
-def create_default_tool_instances() -> Dict[str, Any]:
-    """
-    Create the default set of tool instances for incremental audits.
+def create_default_tool_instances() -> dict[str, Any]:
+    """Create the default set of tool instances for incremental audits.
 
     Returns:
         Dictionary mapping tool names to tool instances or callables
+
     """
-    from app.tools.structure_tool import StructureTool
     from app.tools.architecture_tool import ArchitectureTool
-    from app.tools.typing_tool import TypingTool
-    from app.tools.duplication_tool import DuplicationTool
-    from app.tools.deadcode_tool import DeadcodeTool
-    from app.tools.fast_audit_tool import FastAuditTool
-    from app.tools.secrets_tool import SecretsTool
-    from app.tools.tests_tool import TestsTool
-    from app.tools.gitignore_tool import GitignoreTool
-    from app.tools.git_tool import GitTool
     from app.tools.bandit_tool import BanditTool
+    from app.tools.deadcode_tool import DeadcodeTool
+    from app.tools.duplication_tool import DuplicationTool
+    from app.tools.fast_audit_tool import FastAuditTool
+    from app.tools.git_tool import GitTool
+    from app.tools.gitignore_tool import GitignoreTool
+    from app.tools.secrets_tool import SecretsTool
+    from app.tools.structure_tool import StructureTool
+    from app.tools.tests_tool import TestsTool
+    from app.tools.typing_tool import TypingTool
 
     return {
         "structure": StructureTool(),

@@ -1,10 +1,12 @@
 """Pip-audit vulnerability scanning tool - Check for vulnerable dependencies."""
+
 import json
+import logging
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
 from app.core.base_tool import BaseTool
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +20,15 @@ class PipAuditTool(BaseTool):
     def description(self) -> str:
         return "Scans Python dependencies for known security vulnerabilities using pip-audit"
 
-    def analyze(self, project_path: Path) -> Dict[str, Any]:
-        """
-        Run pip-audit vulnerability scan.
+    def analyze(self, project_path: Path) -> dict[str, Any]:
+        """Run pip-audit vulnerability scan.
 
         Args:
             project_path: Path to the project directory
 
         Returns:
             Dictionary with vulnerabilities found
+
         """
         if not self.validate_path(project_path):
             return {
@@ -34,7 +36,7 @@ class PipAuditTool(BaseTool):
                 "status": "error",
                 "error": "Invalid path",
                 "vulnerabilities": [],
-                "total_vulnerabilities": 0
+                "total_vulnerabilities": 0,
             }
 
         try:
@@ -44,16 +46,19 @@ class PipAuditTool(BaseTool):
             req_file = target_path / "requirements.txt"
             pyproject_file = target_path / "pyproject.toml"
 
+            # Common flags to prevent hanging: timeout and disable progress spinner
+            common_flags = ["--timeout", "30", "--progress-spinner=off"]
+
             if req_file.exists():
-                cmd = ["pip-audit", "-r", str(req_file), "-f", "json"]
+                cmd = ["pip-audit", "-r", str(req_file), "-f", "json"] + common_flags
                 scan_mode = "requirements.txt"
             elif pyproject_file.exists():
                 # Try pyproject.toml if available
-                cmd = ["pip-audit", "-f", "json"]
+                cmd = ["pip-audit", "-f", "json"] + common_flags
                 scan_mode = "pyproject.toml"
             else:
                 # Fallback to environment scan
-                cmd = ["pip-audit", "-f", "json"]
+                cmd = ["pip-audit", "-f", "json"] + common_flags
                 scan_mode = "environment"
 
             try:
@@ -63,7 +68,7 @@ class PipAuditTool(BaseTool):
                     text=True,
                     timeout=self.DEFAULT_TIMEOUT,
                     cwd=str(target_path),
-                    stdin=subprocess.DEVNULL
+                    stdin=subprocess.DEVNULL,
                 )
             except subprocess.TimeoutExpired:
                 return {
@@ -71,7 +76,7 @@ class PipAuditTool(BaseTool):
                     "status": "error",
                     "error": f"Timeout (>{self.DEFAULT_TIMEOUT}s)",
                     "vulnerabilities": [],
-                    "total_vulnerabilities": 0
+                    "total_vulnerabilities": 0,
                 }
             except FileNotFoundError:
                 return {
@@ -79,7 +84,7 @@ class PipAuditTool(BaseTool):
                     "status": "skipped",
                     "error": "pip-audit not installed",
                     "vulnerabilities": [],
-                    "total_vulnerabilities": 0
+                    "total_vulnerabilities": 0,
                 }
 
             # Parse JSON output
@@ -102,7 +107,7 @@ class PipAuditTool(BaseTool):
                 "total_vulnerabilities": len(data),
                 "vulnerabilities": data[:20],  # Limit to first 20
                 "scan_mode": scan_mode,
-                "severity_counts": severity_counts
+                "severity_counts": severity_counts,
             }
 
         except Exception as e:
@@ -112,10 +117,10 @@ class PipAuditTool(BaseTool):
                 "status": "error",
                 "error": str(e),
                 "vulnerabilities": [],
-                "total_vulnerabilities": 0
+                "total_vulnerabilities": 0,
             }
 
-    def _count_by_severity(self, vulnerabilities: List[Dict[str, Any]]) -> Dict[str, int]:
+    def _count_by_severity(self, vulnerabilities: list[dict[str, Any]]) -> dict[str, int]:
         """Count vulnerabilities by severity level."""
         counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
         for vuln in vulnerabilities:

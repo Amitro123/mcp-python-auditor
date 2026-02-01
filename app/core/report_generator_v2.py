@@ -7,15 +7,17 @@ Benefits:
 - Easier to maintain and extend
 - Type-safe context building
 """
+
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List
-import logging
+from typing import Any
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.core.report_context import build_report_context
-from app.core.scoring_engine import ScoringEngine, ScoreBreakdown
 from app.core.report_validator import ReportValidator
+from app.core.scoring_engine import ScoringEngine
 
 logger = logging.getLogger(__name__)
 
@@ -27,83 +29,80 @@ def _get_coverage_severity(coverage: float) -> dict:
             "level": "critical",
             "label": "❌ Critical",
             "description": "No test coverage detected",
-            "recommendation": "Add unit tests immediately"
+            "recommendation": "Add unit tests immediately",
         }
-    elif coverage < 10:
+    if coverage < 10:
         return {
-            "level": "critical", 
+            "level": "critical",
             "label": "❌ Critical",
             "description": f"Virtually no test coverage ({coverage}%)",
-            "recommendation": "Increase coverage to at least 30%"
+            "recommendation": "Increase coverage to at least 30%",
         }
-    elif coverage < 30:
+    if coverage < 30:
         return {
             "level": "high",
-            "label": "🔴 Very Low", 
+            "label": "🔴 Very Low",
             "description": f"Insufficient test coverage ({coverage}%)",
-            "recommendation": "Add tests for critical paths"
+            "recommendation": "Add tests for critical paths",
         }
-    elif coverage < 50:
+    if coverage < 50:
         return {
             "level": "medium",
             "label": "🟡 Low",
             "description": f"Below recommended coverage ({coverage}%)",
-            "recommendation": "Aim for 70%+ coverage"
+            "recommendation": "Aim for 70%+ coverage",
         }
-    elif coverage < 70:
+    if coverage < 70:
         return {
             "level": "low",
             "label": "🟢 Moderate",
             "description": f"Acceptable coverage ({coverage}%)",
-            "recommendation": "Continue improving to 80%+"
+            "recommendation": "Continue improving to 80%+",
         }
-    else:
-        return {
-            "level": "info",
-            "label": "✅ Good",
-            "description": f"Good test coverage ({coverage}%)",
-            "recommendation": "Maintain current standards"
-        }
+    return {
+        "level": "info",
+        "label": "✅ Good",
+        "description": f"Good test coverage ({coverage}%)",
+        "recommendation": "Maintain current standards",
+    }
 
 
 def _get_security_severity(bandit_issues: int, secrets: int) -> dict:
     """Returns object with security severity classification"""
     total = bandit_issues + (secrets * 2)  # secrets are more severe
-    
+
     if total == 0:
         return {"level": "info", "label": "✅ Clean", "count": 0}
-    elif total <= 3:
+    if total <= 3:
         return {"level": "low", "label": "🟡 Minor", "count": total}
-    elif total <= 10:
+    if total <= 10:
         return {"level": "medium", "label": "🟠 Moderate", "count": total}
-    else:
-        return {"level": "high", "label": "🔴 Critical", "count": total}
+    return {"level": "high", "label": "🔴 Critical", "count": total}
 
 
 class ReportGeneratorV2:
     """Generate comprehensive markdown reports using Jinja2 templates."""
-    
+
     def __init__(self, reports_dir: Path):
         self.reports_dir = reports_dir
         self.reports_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize Jinja2 environment
-        template_dir = Path(__file__).parent.parent / 'templates'
+        template_dir = Path(__file__).parent.parent / "templates"
         self.env = Environment(
             loader=FileSystemLoader(str(template_dir)),
-            autoescape=select_autoescape(['html', 'xml']),
+            autoescape=select_autoescape(["html", "xml"]),
             trim_blocks=True,
-            lstrip_blocks=True
+            lstrip_blocks=True,
         )
-        
+
         # Add custom filters
-        self.env.filters['round'] = lambda x, decimals=2: round(float(x), decimals) if x else 0
-        
+        self.env.filters["round"] = lambda x, decimals=2: round(float(x), decimals) if x else 0
+
         logger.info(f"✅ Jinja2 template engine initialized (templates: {template_dir})")
 
-    def _calculate_total_duration(self, tool_results: Dict[str, Any]) -> float | None:
-        """
-        Calculate total duration from individual tool execution times.
+    def _calculate_total_duration(self, tool_results: dict[str, Any]) -> float | None:
+        """Calculate total duration from individual tool execution times.
 
         Handles multiple formats:
         - execution_time_ms: milliseconds (from JSON-first architecture)
@@ -117,13 +116,13 @@ class ReportGeneratorV2:
                 continue
 
             # Check for execution_time_ms (JSON-first format)
-            if 'execution_time_ms' in value:
-                total_ms += value['execution_time_ms']
+            if "execution_time_ms" in value:
+                total_ms += value["execution_time_ms"]
                 found_any = True
             # Check for duration_s (parallel audit format)
-            elif 'duration_s' in value:
+            elif "duration_s" in value:
                 try:
-                    duration_s = float(value['duration_s'])
+                    duration_s = float(value["duration_s"])
                     total_ms += duration_s * 1000
                     found_any = True
                 except (ValueError, TypeError):
@@ -138,13 +137,12 @@ class ReportGeneratorV2:
         report_id: str,
         project_path: str,
         score: int,
-        tool_results: Dict[str, Any],
+        tool_results: dict[str, Any],
         timestamp: datetime,
-        scanned_files: List[str] = None
+        scanned_files: list[str] = None,
     ) -> str:
-        """
-        Generate an audit report using Jinja2 template rendering with pre-calculated scores.
-        
+        """Generate an audit report using Jinja2 template rendering with pre-calculated scores.
+
         Args:
             report_id: Unique report identifier
             project_path: Path to the project being audited
@@ -152,47 +150,47 @@ class ReportGeneratorV2:
             tool_results: Raw results from all audit tools
             timestamp: Report generation timestamp
             scanned_files: Optional list of files that were scanned
-            
+
         Returns:
             Path to the generated report file
+
         """
         try:
             # Step 1: Calculate scores using deterministic engine (NOT LLM!)
             logger.info("Calculating scores using ScoringEngine...")
             score_breakdown = ScoringEngine.calculate_score(tool_results)
             logger.info(f"Score calculated: {score_breakdown.final_score}/100 ({score_breakdown.grade})")
-            
+
             # Step 2: Build normalized context
             logger.info("Building normalized report context...")
-            
+
             # Extract duration from tool_results if available
-            duration = tool_results.get('duration_seconds') or tool_results.get('duration')
+            duration = tool_results.get("duration_seconds") or tool_results.get("duration")
             if isinstance(duration, str):
                 # Try to parse string duration (e.g., "12.34s")
                 try:
-                    duration = float(duration.rstrip('s'))
+                    duration = float(duration.rstrip("s"))
                 except (ValueError, AttributeError):
                     duration = None
 
             # If no duration at root, calculate from individual tool execution times
             if duration is None:
                 duration = self._calculate_total_duration(tool_results)
-            
+
             context = build_report_context(
                 raw_results=tool_results,
                 project_path=project_path,
                 score=score_breakdown.final_score,  # Use calculated score
                 report_id=report_id,
                 timestamp=timestamp,
-                duration=duration  # ADDED: pass duration parameter
+                duration=duration,  # ADDED: pass duration parameter
             )
-            
-            
+
             # Debug logging to identify data structure issues
             logger.debug(f"tool_results keys: {list(tool_results.keys())}")
-            if 'tests' in tool_results:
+            if "tests" in tool_results:
                 logger.debug(f"tests type: {type(tool_results.get('tests'))}")
-            
+
             # Safe extraction with type validation
             tests_data = tool_results.get("tests", {})
             if isinstance(tests_data, dict):
@@ -216,35 +214,33 @@ class ReportGeneratorV2:
                 logger.warning(f"Secrets data is not a dict: {type(secrets_data)}")
 
             # Pre-classified severities (prevent hallucination)
-            context.update({
-                # Calculated scores - these WON'T change!
-                "score": score_breakdown.final_score,
-                "grade": score_breakdown.grade,
-                "security_penalty": score_breakdown.security_penalty,
-                "quality_penalty": score_breakdown.quality_penalty,
-                "testing_penalty": score_breakdown.testing_penalty,
-                
-                "coverage_severity": _get_coverage_severity(coverage),
-                "security_severity": _get_security_severity(bandit_issues, secrets_count),
-                
-                # Template-specific fields
-                "repo_name": Path(project_path).resolve().name,
-                "repo_name": Path(project_path).resolve().name,
-                # "duration": "PRESERVED_FROM_CONTEXT", # Don't overwrite correct duration from build_report_context
-                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-                
-                # Raw results for template access
-                "raw_results": tool_results,
-            })
-            
+            context.update(
+                {
+                    # Calculated scores - these WON'T change!
+                    "score": score_breakdown.final_score,
+                    "grade": score_breakdown.grade,
+                    "security_penalty": score_breakdown.security_penalty,
+                    "quality_penalty": score_breakdown.quality_penalty,
+                    "testing_penalty": score_breakdown.testing_penalty,
+                    "coverage_severity": _get_coverage_severity(coverage),
+                    "security_severity": _get_security_severity(bandit_issues, secrets_count),
+                    # Template-specific fields
+                    "repo_name": Path(project_path).resolve().name,
+                    # "duration": "PRESERVED_FROM_CONTEXT", # Don't overwrite correct duration from build_report_context
+                    "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    # Raw results for template access
+                    "raw_results": tool_results,
+                }
+            )
+
             # Step 4: Load template
             logger.info("Loading Jinja2 template...")
-            template = self.env.get_template('audit_report_v3.md.j2')  # Use new template
-            
+            template = self.env.get_template("audit_report_v3.md.j2")  # Use new template
+
             # Step 5: Render report
             logger.info("Rendering report...")
             report_content = template.render(**context)
-            
+
             # Step 6: Validation
             validator = ReportValidator()
             errors = validator.validate_consistency(tool_results, report_content, score_breakdown)
@@ -256,59 +252,57 @@ class ReportGeneratorV2:
                     report_content += f"- {error}\n"
             else:
                 logger.info("✅ Report validation passed - no inconsistencies detected")
-            
+
             # Step 7: Write to file
             report_path = self.reports_dir / f"{report_id}.md"
-            with open(report_path, 'w', encoding='utf-8') as f:
+            with open(report_path, "w", encoding="utf-8") as f:
                 f.write(report_content)
-            
+
             # Step 8: Append integrity validation if scanned_files provided
             if scanned_files:
                 self._append_integrity_validation(report_path, scanned_files)
-            
+
             logger.info(f"✅ Report generated successfully: {report_path}")
             return str(report_path)
-            
+
         except Exception as e:
             logger.error(f"❌ Report generation failed: {e}", exc_info=True)
             raise
-    
-    def _append_integrity_validation(self, report_path: Path, scanned_files: List[str]) -> None:
+
+    def _append_integrity_validation(self, report_path: Path, scanned_files: list[str]) -> None:
         """Append integrity validation section to the report."""
         try:
             from app.core.audit_validator import validate_report_integrity
-            
+
             # Read the generated report
-            with open(report_path, 'r', encoding='utf-8') as f:
+            with open(report_path, encoding="utf-8") as f:
                 report_text = f.read()
-            
+
             # Generate validation section
             validation_section = validate_report_integrity(report_text, scanned_files)
-            
+
             # Append validation to report
-            with open(report_path, 'a', encoding='utf-8') as f:
+            with open(report_path, "a", encoding="utf-8") as f:
                 f.write("\n\n---\n\n")
                 f.write(validation_section)
-            
+
             logger.info(f"✅ Integrity validation appended ({len(scanned_files)} files verified)")
-            
+
         except ImportError:
             logger.warning("⚠️ audit_validator module not found, skipping integrity check")
         except Exception as e:
             logger.error(f"❌ Integrity validation failed: {e}")
-
 
     def generate_html_report(
         self,
         report_id: str,
         project_path: str,
         score: int,
-        tool_results: Dict[str, Any],
+        tool_results: dict[str, Any],
         timestamp: datetime,
-        scanned_files: List[str] = None
+        scanned_files: list[str] = None,
     ) -> str:
-        """
-        Generate an HTML audit report with styling.
+        """Generate an HTML audit report with styling.
 
         Args:
             report_id: Unique report identifier
@@ -320,6 +314,7 @@ class ReportGeneratorV2:
 
         Returns:
             Path to the generated HTML report file
+
         """
         try:
             import markdown
@@ -331,18 +326,15 @@ class ReportGeneratorV2:
                 score=score,
                 tool_results=tool_results,
                 timestamp=timestamp,
-                scanned_files=scanned_files
+                scanned_files=scanned_files,
             )
 
             # Read the markdown content
-            with open(md_report_path, 'r', encoding='utf-8') as f:
+            with open(md_report_path, encoding="utf-8") as f:
                 md_content = f.read()
 
             # Convert to HTML
-            html_body = markdown.markdown(
-                md_content,
-                extensions=['tables', 'fenced_code', 'toc']
-            )
+            html_body = markdown.markdown(md_content, extensions=["tables", "fenced_code", "toc"])
 
             # Calculate score for styling
             score_breakdown = ScoringEngine.calculate_score(tool_results)
@@ -360,7 +352,7 @@ class ReportGeneratorV2:
                 score_color = "#ef4444"  # red
 
             # Wrap in HTML template
-            html_content = f'''<!DOCTYPE html>
+            html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -483,11 +475,11 @@ class ReportGeneratorV2:
         </div>
     </div>
 </body>
-</html>'''
+</html>"""
 
             # Write HTML file
             html_path = self.reports_dir / f"{report_id}.html"
-            with open(html_path, 'w', encoding='utf-8') as f:
+            with open(html_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
 
             logger.info(f"HTML report generated: {html_path}")
@@ -495,9 +487,7 @@ class ReportGeneratorV2:
 
         except ImportError:
             logger.warning("markdown package not installed, falling back to markdown-only")
-            return self.generate_report(
-                report_id, project_path, score, tool_results, timestamp, scanned_files
-            )
+            return self.generate_report(report_id, project_path, score, tool_results, timestamp, scanned_files)
         except Exception as e:
             logger.error(f"HTML report generation failed: {e}", exc_info=True)
             raise

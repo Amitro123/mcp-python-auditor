@@ -1,9 +1,8 @@
 """Tests for FastAPI endpoints."""
 import pytest
-from fastapi.testclient import TestClient
-from pathlib import Path
-from app.main import app, TOOLS_DIR
-from app.core.tool_registry import registry
+
+# Skip entire module - app.main was removed
+pytest.importorskip("app.main", reason="app.main was removed")
 
 
 @pytest.fixture(scope="module")

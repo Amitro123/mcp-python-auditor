@@ -4,8 +4,9 @@ This module transforms raw audit results into a clean, normalized context for
 Jinja2 template rendering. It handles missing keys, inconsistent formats, and
 provides safe defaults to prevent "N/A" bugs.
 """
+
 import logging
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -39,19 +40,17 @@ def _format_duration(seconds: float) -> str:
     """Format duration as human-readable string (e.g., '4m 2s' instead of '242.31s')."""
     if seconds < 60:
         return f"{seconds:.1f}s"
-    elif seconds < 3600:
+    if seconds < 3600:
         mins = int(seconds // 60)
         secs = int(seconds % 60)
         return f"{mins}m {secs}s"
-    else:
-        hours = int(seconds // 3600)
-        mins = int((seconds % 3600) // 60)
-        return f"{hours}h {mins}m"
+    hours = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    return f"{hours}h {mins}m"
 
 
 def _extract_tool_data(raw_results: dict[str, Any], key: str) -> dict[str, Any]:
-    """
-    Extract tool data handling both flat and nested structures.
+    """Extract tool data handling both flat and nested structures.
 
     Handles:
     1. Flat: raw_results[key] = {actual data}
@@ -60,8 +59,8 @@ def _extract_tool_data(raw_results: dict[str, Any], key: str) -> dict[str, Any]:
     data = raw_results.get(key, {})
 
     # If data has 'data' key with a dict value, extract the nested data
-    if isinstance(data, dict) and 'data' in data and isinstance(data.get('data'), dict):
-        return data['data']
+    if isinstance(data, dict) and "data" in data and isinstance(data.get("data"), dict):
+        return data["data"]
 
     return data if isinstance(data, dict) else {}
 
@@ -72,10 +71,9 @@ def build_report_context(
     score: int,
     report_id: str,
     timestamp: datetime,
-    duration: float | None = None  # ADDED: duration parameter
+    duration: float | None = None,  # ADDED: duration parameter
 ) -> dict[str, Any]:
-    """
-    Build normalized context for Jinja2 template rendering.
+    """Build normalized context for Jinja2 template rendering.
 
     This function:
     1. Flattens inconsistent keys (git vs git_info)
@@ -93,6 +91,7 @@ def build_report_context(
 
     Returns:
         Normalized context dictionary ready for template rendering
+
     """
     # Calculate grade from score
     grade = _calculate_grade(score)
@@ -115,16 +114,13 @@ def build_report_context(
         "date": timestamp.strftime("%Y-%m-%d"),
         "time": timestamp.strftime("%H:%M:%S"),
         "duration": _format_duration(duration) if duration else "N/A",  # Human-readable duration
-
         # === PENALTIES (for score breakdown table) ===
         "security_penalty": penalties["security"],
         "testing_penalty": penalties["testing"],
         "quality_penalty": penalties["quality"],
-
         # === SEVERITY LABELS ===
         "security_severity": security_severity,
         "coverage_severity": coverage_severity,
-
         # === NORMALIZED SECTIONS ===
         "git": _normalize_git_info(raw_results),
         "structure": _normalize_structure(raw_results),
@@ -140,13 +136,10 @@ def build_report_context(
         "cleanup": _normalize_cleanup(raw_results),
         "typing": _normalize_typing(raw_results),
         "gitignore": _normalize_gitignore(raw_results),
-
         # === TOOL EXECUTION SUMMARY ===
         "tools_summary": _build_tools_summary(raw_results),
-
         # === TOP PRIORITIES ===
         "top_priorities": _calculate_top_priorities(raw_results),
-
         # === REPORT INTEGRITY ===
         "all_sections_present": True,  # Will be validated later
         "missing_sections": [],  # Will be populated if needed
@@ -168,11 +161,7 @@ def _calculate_grade(score: int) -> str:
 
 def _calculate_penalties(raw_results: dict[str, Any]) -> dict[str, int]:
     """Calculate penalty points for each category."""
-    penalties = {
-        "security": 0,
-        "testing": 0,
-        "quality": 0
-    }
+    penalties = {"security": 0, "testing": 0, "quality": 0}
 
     # Security penalty
     security = raw_results.get("bandit") or raw_results.get("security", {})
@@ -187,7 +176,7 @@ def _calculate_penalties(raw_results: dict[str, Any]) -> dict[str, int]:
 
     penalties["security"] = min(
         MAX_SECURITY_PENALTY,
-        (security_issues * SECURITY_ISSUE_PENALTY) + (secrets_found * SECRET_FOUND_PENALTY)
+        (security_issues * SECURITY_ISSUE_PENALTY) + (secrets_found * SECRET_FOUND_PENALTY),
     )
 
     # Testing penalty
@@ -225,24 +214,12 @@ def _get_security_severity(raw_results: dict[str, Any]) -> dict[str, str]:
         issues = len(security.get("issues", []))
 
     if issues == 0:
-        return {
-            "label": "✅ Clean",
-            "description": "No security issues detected"
-        }
+        return {"label": "✅ Clean", "description": "No security issues detected"}
     if issues < 5:
-        return {
-            "label": "🟡 Low",
-            "description": "Minor security issues found"
-        }
+        return {"label": "🟡 Low", "description": "Minor security issues found"}
     if issues < 15:
-        return {
-            "label": "🟠 Medium",
-            "description": "Moderate security concerns"
-        }
-    return {
-        "label": "🔴 High",
-        "description": "Significant security issues require attention"
-    }
+        return {"label": "🟠 Medium", "description": "Moderate security concerns"}
+    return {"label": "🔴 High", "description": "Significant security issues require attention"}
 
 
 def _get_coverage_severity(raw_results: dict[str, Any]) -> dict[str, str]:
@@ -254,30 +231,30 @@ def _get_coverage_severity(raw_results: dict[str, Any]) -> dict[str, str]:
         return {
             "label": "🟢 Excellent",
             "description": f"Excellent coverage ({coverage}%)",
-            "recommendation": "Maintain current test coverage"
+            "recommendation": "Maintain current test coverage",
         }
     if coverage >= COVERAGE_THRESHOLD_MODERATE:
         return {
             "label": "🟡 Good",
             "description": f"Good coverage ({coverage}%)",
-            "recommendation": "Continue improving to 80%+"
+            "recommendation": "Continue improving to 80%+",
         }
     if coverage >= COVERAGE_THRESHOLD_LOW:
         return {
             "label": "🟠 Moderate",
             "description": f"Acceptable coverage ({coverage}%)",
-            "recommendation": "Continue improving to 80%+"
+            "recommendation": "Continue improving to 80%+",
         }
     if coverage > 0:
         return {
             "label": "🔴 Low",
             "description": f"Low coverage ({coverage}%)",
-            "recommendation": "CRITICAL: Increase test coverage to at least 70%"
+            "recommendation": "CRITICAL: Increase test coverage to at least 70%",
         }
     return {
         "label": "❌ None",
         "description": "No coverage data available",
-        "recommendation": "CRITICAL: Add tests to achieve at least 70% coverage"
+        "recommendation": "CRITICAL: Add tests to achieve at least 70% coverage",
     }
 
 
@@ -291,7 +268,7 @@ def _normalize_git_info(raw_results: dict[str, Any]) -> dict[str, Any]:
             "branch": "N/A",
             "uncommitted_changes": 0,
             "last_commit": {},
-            "status": "Not a git repository"
+            "status": "Not a git repository",
         }
 
     # Extract last commit info
@@ -303,7 +280,7 @@ def _normalize_git_info(raw_results: dict[str, Any]) -> dict[str, Any]:
             "hash": parts[0] if parts else "N/A",
             "message": parts[1] if len(parts) > 1 else "",
             "author": git_data.get("commit_author", "Unknown"),
-            "when": git_data.get("commit_date", "Unknown")
+            "when": git_data.get("commit_date", "Unknown"),
         }
 
     return {
@@ -312,7 +289,7 @@ def _normalize_git_info(raw_results: dict[str, Any]) -> dict[str, Any]:
         "uncommitted_changes": git_data.get("uncommitted_changes", 0),
         "last_commit": last_commit,
         "status": git_data.get("status", "Unknown"),
-        "days_since_commit": git_data.get("days_since_commit", 0)
+        "days_since_commit": git_data.get("days_since_commit", 0),
     }
 
 
@@ -331,7 +308,7 @@ def _normalize_structure(raw_results: dict[str, Any]) -> dict[str, Any]:
         "total_directories": len(data.get("top_directories", [])) or data.get("total_dirs", 0),
         "directory_tree": tree,
         "tree": tree,
-        "top_directories": data.get("top_directories", [])
+        "top_directories": data.get("top_directories", []),
     }
 
 
@@ -347,50 +324,51 @@ def _normalize_architecture(raw_results: dict[str, Any]) -> dict[str, Any]:
         "has_graph": bool(data.get("mermaid_graph")),
         "nodes": data.get("nodes", []),
         "issues": data.get("issues", []),
-        "has_issues": len(data.get("issues", [])) > 0
+        "has_issues": len(data.get("issues", [])) > 0,
     }
 
 
 def _normalize_security(raw_results: dict[str, Any]) -> dict[str, Any]:
-    """
-    Normalize security (Bandit) data.
+    """Normalize security (Bandit) data.
 
     Handles BOTH:
     1. Bandit field names (issue_severity, filename, issue_text, line_number)
     2. Standard field names (severity, file, message, line) - from FastAuditTool or pre-normalized
     """
     # Extract tool data handling nested structure
-    bandit_data = _extract_tool_data(raw_results, 'bandit') or _extract_tool_data(raw_results, 'security')
+    bandit_data = _extract_tool_data(raw_results, "bandit") or _extract_tool_data(raw_results, "security")
 
     # Also handle 'code_security' wrapper if present
-    if 'code_security' in bandit_data:
-        bandit_data = bandit_data['code_security']
+    if "code_security" in bandit_data:
+        bandit_data = bandit_data["code_security"]
 
-    raw_issues = bandit_data.get('issues', [])
+    raw_issues = bandit_data.get("issues", [])
 
     # Map fields to template-expected format
     # Check BOTH Bandit field names AND standard field names
     issues = []
     for issue in raw_issues:
-        issues.append({
-            # Prefer standard names, fall back to Bandit names, then defaults
-            'severity': issue.get('severity') or issue.get('issue_severity', 'MEDIUM'),
-            'file': issue.get('file') or issue.get('filename', ''),
-            'line': issue.get('line') or issue.get('line_number', 0),
-            'message': issue.get('message') or issue.get('issue_text', ''),
-            'code': issue.get('code') or issue.get('test_id', ''),
-            'confidence': issue.get('confidence') or issue.get('issue_confidence', 'MEDIUM'),
-            'more_info': issue.get('more_info', ''),
-            'cwe': issue.get('cwe') or issue.get('issue_cwe', {})
-        })
+        issues.append(
+            {
+                # Prefer standard names, fall back to Bandit names, then defaults
+                "severity": issue.get("severity") or issue.get("issue_severity", "MEDIUM"),
+                "file": issue.get("file") or issue.get("filename", ""),
+                "line": issue.get("line") or issue.get("line_number", 0),
+                "message": issue.get("message") or issue.get("issue_text", ""),
+                "code": issue.get("code") or issue.get("test_id", ""),
+                "confidence": issue.get("confidence") or issue.get("issue_confidence", "MEDIUM"),
+                "more_info": issue.get("more_info", ""),
+                "cwe": issue.get("cwe") or issue.get("issue_cwe", {}),
+            }
+        )
 
     return {
-        'available': bool(bandit_data) and 'error' not in bandit_data,
-        'files_scanned': bandit_data.get('files_scanned', 0),
-        'total_issues': len(issues),
-        'issues': issues[:20],  # Limit to top 20 for display
-        'has_issues': len(issues) > 0,
-        'severity_counts': _count_by_severity(issues)
+        "available": bool(bandit_data) and "error" not in bandit_data,
+        "files_scanned": bandit_data.get("files_scanned", 0),
+        "total_issues": len(issues),
+        "issues": issues[:20],  # Limit to top 20 for display
+        "has_issues": len(issues) > 0,
+        "severity_counts": _count_by_severity(issues),
     }
 
 
@@ -404,7 +382,7 @@ def _normalize_secrets(raw_results: dict[str, Any]) -> dict[str, Any]:
         "total_secrets": len(secrets),
         "secrets": secrets,
         "has_secrets": len(secrets) > 0,
-        "status": data.get("status", "unknown")
+        "status": data.get("status", "unknown"),
     }
 
 
@@ -427,28 +405,23 @@ def _generate_test_warning(data: dict[str, Any], total_files: int, total_execute
 
 
 def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
-    """
-    Normalize test execution data.
+    """Normalize test execution data.
 
     Handles BOTH flat and nested data structures.
     """
-    data = _extract_tool_data(raw_results, 'tests')
+    data = _extract_tool_data(raw_results, "tests")
 
-    total_files = data.get('total_test_files', 0)
-    tests_passed = data.get('tests_passed', 0)
-    tests_failed = data.get('tests_failed', 0)
-    tests_skipped = data.get('tests_skipped', 0)
+    total_files = data.get("total_test_files", 0)
+    tests_passed = data.get("tests_passed", 0)
+    tests_failed = data.get("tests_failed", 0)
+    tests_skipped = data.get("tests_skipped", 0)
     total_executed = tests_passed + tests_failed
 
     # Detect premature stop
-    premature_stop = (
-        total_files > 0 and
-        total_executed > 0 and
-        total_executed < total_files
-    )
+    premature_stop = total_files > 0 and total_executed > 0 and total_executed < total_files
 
-    warning = data.get('warning', '')
-    coverage_percent = data.get('coverage_percent', 0)
+    warning = data.get("warning", "")
+    coverage_percent = data.get("coverage_percent", 0)
 
     # Validation: Test files found but no results
     # FIXED: Only show warning if BOTH no tests reported AND coverage is 0
@@ -458,11 +431,11 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
         warning = f"{warning} {msg}" if warning else msg
 
     # Get raw_breakdown from JSON (may be None from TestsTool)
-    raw_breakdown = data.get('test_breakdown') or {}
+    raw_breakdown = data.get("test_breakdown") or {}
 
     # Check raw_breakdown for files if total_files (from total_test_files) is 0
     if total_files == 0:
-        total_files = raw_breakdown.get('total_files', 0)
+        total_files = raw_breakdown.get("total_files", 0)
 
     # Validation: Coverage reported but no test files
     if coverage_percent > 0 and total_files == 0:
@@ -470,7 +443,7 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
         warning = f"{warning} {msg}" if warning else msg
 
     # Get test_list to count actual test functions
-    test_list = data.get('test_list', [])
+    test_list = data.get("test_list", [])
     total_tests = len(test_list)
 
     # Count actual tests by category (based on path in test_list)
@@ -480,58 +453,55 @@ def _normalize_tests(raw_results: dict[str, Any]) -> dict[str, Any]:
     e2e_tests_count = 0
 
     for test_id in test_list:
-        test_path = test_id.lower().replace('\\', '/')
+        test_path = test_id.lower().replace("\\", "/")
         # Check for integration tests (path contains /integration/ or starts with integration/)
-        if '/integration/' in test_path or test_path.startswith('integration/'):
+        if "/integration/" in test_path or test_path.startswith("integration/"):
             integration_tests_count += 1
         # Check for e2e tests (path contains /e2e/ or starts with e2e/)
-        elif '/e2e/' in test_path or test_path.startswith('e2e/'):
+        elif "/e2e/" in test_path or test_path.startswith("e2e/"):
             e2e_tests_count += 1
         else:
             unit_tests_count += 1
 
     # Build test_breakdown with ACTUAL TEST COUNTS
     test_breakdown = {
-        'unit': unit_tests_count if total_tests > 0 else raw_breakdown.get('unit', 0),
-        'integration': integration_tests_count if total_tests > 0 else raw_breakdown.get('integration', 0),
-        'e2e': e2e_tests_count if total_tests > 0 else raw_breakdown.get('e2e', 0),
-        'total_files': raw_breakdown.get('total_files', total_files)
+        "unit": unit_tests_count if total_tests > 0 else raw_breakdown.get("unit", 0),
+        "integration": integration_tests_count if total_tests > 0 else raw_breakdown.get("integration", 0),
+        "e2e": e2e_tests_count if total_tests > 0 else raw_breakdown.get("e2e", 0),
+        "total_files": raw_breakdown.get("total_files", total_files),
     }
 
     # Also keep file counts for reference
     file_breakdown = {
-        'unit': raw_breakdown.get('unit', 0),
-        'integration': raw_breakdown.get('integration', 0),
-        'e2e': raw_breakdown.get('e2e', 0),
-        'total_files': raw_breakdown.get('total_files', total_files)
+        "unit": raw_breakdown.get("unit", 0),
+        "integration": raw_breakdown.get("integration", 0),
+        "e2e": raw_breakdown.get("e2e", 0),
+        "total_files": raw_breakdown.get("total_files", total_files),
     }
 
     # Determine has_* flags - use TestsTool booleans as fallback
-    has_unit = (test_breakdown['unit'] > 0 or file_breakdown['unit'] > 0
-                or data.get('has_unit_tests', False))
-    has_integration = (test_breakdown['integration'] > 0 or file_breakdown['integration'] > 0
-                       or data.get('has_integration_tests', False))
-    has_e2e = (test_breakdown['e2e'] > 0 or file_breakdown['e2e'] > 0
-               or data.get('has_e2e_tests', False))
+    has_unit = test_breakdown["unit"] > 0 or file_breakdown["unit"] > 0 or data.get("has_unit_tests", False)
+    has_integration = test_breakdown["integration"] > 0 or file_breakdown["integration"] > 0 or data.get("has_integration_tests", False)
+    has_e2e = test_breakdown["e2e"] > 0 or file_breakdown["e2e"] > 0 or data.get("has_e2e_tests", False)
 
     return {
-        'available': bool(data),
-        'coverage_percent': coverage_percent,
-        'coverage_report': data.get('coverage_report', ''),
-        'total_test_files': total_files,
-        'total_tests': total_tests,
-        'tests_passed': tests_passed,
-        'tests_failed': tests_failed,
-        'tests_skipped': tests_skipped,
-        'total_executed': total_executed,
-        'premature_stop': premature_stop,
-        'has_unit': has_unit,
-        'has_integration': has_integration,
-        'has_e2e': has_e2e,
-        'test_breakdown': test_breakdown,
-        'file_breakdown': file_breakdown,
-        'test_list': test_list,
-        'warning': warning
+        "available": bool(data),
+        "coverage_percent": coverage_percent,
+        "coverage_report": data.get("coverage_report", ""),
+        "total_test_files": total_files,
+        "total_tests": total_tests,
+        "tests_passed": tests_passed,
+        "tests_failed": tests_failed,
+        "tests_skipped": tests_skipped,
+        "total_executed": total_executed,
+        "premature_stop": premature_stop,
+        "has_unit": has_unit,
+        "has_integration": has_integration,
+        "has_e2e": has_e2e,
+        "test_breakdown": test_breakdown,
+        "file_breakdown": file_breakdown,
+        "test_list": test_list,
+        "warning": warning,
     }
 
 
@@ -553,7 +523,7 @@ def _normalize_complexity(raw_results: dict[str, Any]) -> dict[str, Any]:
                     "average_complexity": efficiency_data.get("average_complexity", "N/A"),
                     "high_complexity": complexity_issues or high_complexity,
                     "very_high_complexity": [],
-                    "has_complex_functions": len(complexity_issues or high_complexity) > 0
+                    "has_complex_functions": len(complexity_issues or high_complexity) > 0,
                 }
 
     # Fallback 2: Check Ruff (quality) complexity findings
@@ -568,7 +538,7 @@ def _normalize_complexity(raw_results: dict[str, Any]) -> dict[str, Any]:
                 "average_complexity": "N/A",
                 "high_complexity": complexity_issues,
                 "very_high_complexity": [],
-                "has_complex_functions": len(complexity_issues) > 0
+                "has_complex_functions": len(complexity_issues) > 0,
             }
 
     return {
@@ -577,7 +547,7 @@ def _normalize_complexity(raw_results: dict[str, Any]) -> dict[str, Any]:
         "average_complexity": data.get("average_complexity", 0),
         "high_complexity": data.get("high_complexity_functions", []),
         "very_high_complexity": data.get("very_high_complexity_functions", []),
-        "has_complex_functions": len(data.get("high_complexity_functions", [])) > 0
+        "has_complex_functions": len(data.get("high_complexity_functions", [])) > 0,
     }
 
 
@@ -592,6 +562,7 @@ def _normalize_efficiency(raw_results: dict[str, Any]) -> dict[str, Any]:
     # Convert FastAuditTool complexity items to high_complexity_functions format
     if complexity_items and not high_complexity_functions:
         import re
+
         for item in complexity_items:
             # Parse message like "`analyze_project` is too complex (14 > 10)"
             message = item.get("message", "")
@@ -601,24 +572,28 @@ def _normalize_efficiency(raw_results: dict[str, Any]) -> dict[str, Any]:
             func_name = func_match.group(1) if func_match else "unknown"
             complexity_val = int(complexity_match.group(1)) if complexity_match else 0
 
-            high_complexity_functions.append({
-                "file": item.get("file", "").replace("\\", "/").split("/")[-1],
-                "name": func_name,
-                "function": func_name,
-                "complexity": complexity_val,
-                "line": item.get("line", 0),
-            })
+            high_complexity_functions.append(
+                {
+                    "file": item.get("file", "").replace("\\", "/").split("/")[-1],
+                    "name": func_name,
+                    "function": func_name,
+                    "complexity": complexity_val,
+                    "line": item.get("line", 0),
+                }
+            )
 
     # Map high_complexity_functions to issues
     issues = data.get("issues", [])
     if not issues and high_complexity_functions:
         for func in high_complexity_functions:
-            issues.append({
-                "type": "High Complexity",
-                "file": func.get("file", ""),
-                "line": func.get("line", ""),
-                "description": f"Complexity: {func.get('complexity', 0)} (Function: {func.get('name', func.get('function', ''))})"
-            })
+            issues.append(
+                {
+                    "type": "High Complexity",
+                    "file": func.get("file", ""),
+                    "line": func.get("line", ""),
+                    "description": f"Complexity: {func.get('complexity', 0)} (Function: {func.get('name', func.get('function', ''))})",
+                }
+            )
 
     return {
         "available": bool(data) or bool(high_complexity_functions),
@@ -632,7 +607,7 @@ def _normalize_efficiency(raw_results: dict[str, Any]) -> dict[str, Any]:
         "files_analyzed": data.get("files_analyzed", 0),
         "performance_issues": data.get("performance_issues", []),
         "issues": issues,
-        "has_issues": len(issues) > 0 or len(high_complexity_functions) > 0
+        "has_issues": len(issues) > 0 or len(high_complexity_functions) > 0,
     }
 
 
@@ -658,7 +633,7 @@ def _normalize_duplication(raw_results: dict[str, Any]) -> dict[str, Any]:
         "total_functions_analyzed": data.get("total_functions_analyzed", 0),
         "duplicates": duplicates,
         "file_groups": sorted_files[:10],
-        "has_duplicates": len(duplicates) > 0
+        "has_duplicates": len(duplicates) > 0,
     }
 
 
@@ -682,7 +657,7 @@ def _normalize_deadcode(raw_results: dict[str, Any]) -> dict[str, Any]:
         "total_unused_vars": len(unused_vars),
         "total_items": total,  # ADDED: for template
         "has_dead_code": total > 0,
-        "error": data.get("error")
+        "error": data.get("error"),
     }
 
 
@@ -698,7 +673,7 @@ def _normalize_cleanup(raw_results: dict[str, Any]) -> dict[str, Any]:
         "total_size_mb": data.get("total_size_mb", 0),
         "cleanup_items": data.get("items", []),
         "cleanup_targets": targets,
-        "has_cleanup": len(data.get("items", [])) > 0
+        "has_cleanup": len(data.get("items", [])) > 0,
     }
 
 
@@ -712,7 +687,7 @@ def _normalize_typing(raw_results: dict[str, Any]) -> dict[str, Any]:
         "untyped_functions": data.get("untyped_functions", 0),
         "typed_functions": data.get("typed_functions") or data.get("fully_typed_functions", 0),
         "total_functions": data.get("total_functions", 0),
-        "has_untyped": data.get("untyped_functions", 0) > 0
+        "has_untyped": data.get("untyped_functions", 0) > 0,
     }
 
 
@@ -723,7 +698,7 @@ def _normalize_gitignore(raw_results: dict[str, Any]) -> dict[str, Any]:
     return {
         "available": bool(data),
         "suggestions": data.get("suggestions", []),
-        "has_suggestions": len(data.get("suggestions", [])) > 0
+        "has_suggestions": len(data.get("suggestions", [])) > 0,
     }
 
 
@@ -734,7 +709,11 @@ def _build_tools_summary(raw_results: dict[str, Any]) -> list[dict[str, Any]]:
         ("structure", "📁 Structure", []),
         ("architecture", "🏗️ Architecture", []),
         ("typing", "📝 Type Coverage", []),
-        ("complexity", "🧮 Complexity", ["efficiency"]),  # Complexity comes from efficiency/FastAudit
+        (
+            "complexity",
+            "🧮 Complexity",
+            ["efficiency"],
+        ),  # Complexity comes from efficiency/FastAudit
         ("duplication", "🎭 Duplication", []),
         ("dead_code", "☠️ Dead Code", ["deadcode"]),  # Handle both key names
         ("efficiency", "⚡ Efficiency", []),
@@ -775,12 +754,14 @@ def _build_tools_summary(raw_results: dict[str, Any]) -> list[dict[str, Any]]:
                 # Fall back to duration_s from inner data
                 duration_s = tool_data.get("duration_s", 0) if isinstance(tool_data, dict) else 0
 
-        summary.append({
-            "name": name,
-            "status": status,
-            "details": details,
-            "duration_s": f"{duration_s:.2f}" if duration_s else "0.00"
-        })
+        summary.append(
+            {
+                "name": name,
+                "status": status,
+                "details": details,
+                "duration_s": f"{duration_s:.2f}" if duration_s else "0.00",
+            }
+        )
 
     return summary
 
@@ -884,31 +865,37 @@ def _calculate_top_priorities(raw_results: dict[str, Any]) -> list[dict[str, Any
     # Architecture issues
     arch_data = raw_results.get("architecture", {})
     if arch_data.get("issues"):
-        priorities.append({
-            "title": "Architecture: Improve modularity",
-            "impact": 15,
-            "description": "Centralize endpoints and models to improve code organization"
-        })
+        priorities.append(
+            {
+                "title": "Architecture: Improve modularity",
+                "impact": 15,
+                "description": "Centralize endpoints and models to improve code organization",
+            }
+        )
 
     # Typing issues
     typing_data = raw_results.get("typing", {})
     untyped = typing_data.get("untyped_functions", 0)
     if untyped > 100:
-        priorities.append({
-            "title": f"Types: {untyped} untyped functions",
-            "impact": 12,
-            "description": "Add type hints to prevent runtime errors"
-        })
+        priorities.append(
+            {
+                "title": f"Types: {untyped} untyped functions",
+                "impact": 12,
+                "description": "Add type hints to prevent runtime errors",
+            }
+        )
 
     # Duplication issues
     dup_data = raw_results.get("duplication", {})
     dups = len(dup_data.get("duplicates", []))
     if dups > 10:
-        priorities.append({
-            "title": f"Duplicates: {dups} code blocks",
-            "impact": 8,
-            "description": "Extract common patterns into reusable functions"
-        })
+        priorities.append(
+            {
+                "title": f"Duplicates: {dups} code blocks",
+                "impact": 8,
+                "description": "Extract common patterns into reusable functions",
+            }
+        )
 
     return priorities[:3]
 
@@ -931,10 +918,7 @@ def _normalize_quality(raw_results: dict[str, Any]) -> dict[str, Any]:
         all_issues = data.get("issues", [])
 
         # Filter out Security (S) and Complexity (C90) issues as they have their own sections
-        issues = [
-            i for i in all_issues
-            if not (i.get("code", "").startswith("S") or i.get("code", "").startswith("C90"))
-        ]
+        issues = [i for i in all_issues if not (i.get("code", "").startswith("S") or i.get("code", "").startswith("C90"))]
 
     return {
         "available": bool(data) and "error" not in data,
@@ -942,23 +926,22 @@ def _normalize_quality(raw_results: dict[str, Any]) -> dict[str, Any]:
         "issues": issues,
         "has_issues": len(issues) > 0,
         "severity_counts": _count_by_severity(issues),
-        "files_with_issues": data.get("files_with_issues", 0)
+        "files_with_issues": data.get("files_with_issues", 0),
     }
 
 
 def _count_by_severity(issues: list[dict[str, Any]]) -> dict[str, int]:
-    """
-    Count issues by severity level.
-    
+    """Count issues by severity level.
+
     FIXED: Now works with normalized 'severity' field
     """
-    counts = {'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
-    
+    counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+
     for issue in issues:
-        severity = issue.get('severity', 'MEDIUM').upper()
+        severity = issue.get("severity", "MEDIUM").upper()
         if severity in counts:
             counts[severity] += 1
         else:
-            counts['MEDIUM'] += 1
-    
+            counts["MEDIUM"] += 1
+
     return counts

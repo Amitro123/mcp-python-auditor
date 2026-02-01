@@ -1,17 +1,20 @@
 """Pydantic schemas for ProjectAuditAgent."""
-from typing import Optional, Dict, Any, List
+
 from datetime import datetime
-from pydantic import BaseModel, Field, field_validator
 from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class AuditRequest(BaseModel):
     """Request model for project audit."""
+
     path: str = Field(..., description="Absolute path to the project directory")
     dry_run: bool = Field(default=False, description="If true, only analyze without generating report")
-    tools: Optional[List[str]] = Field(default=None, description="Specific tools to run (None = all)")
-    
-    @field_validator('path')
+    tools: list[str] | None = Field(default=None, description="Specific tools to run (None = all)")
+
+    @field_validator("path")
     @classmethod
     def validate_path(cls, v: str) -> str:
         """Validate that path exists and is a directory."""
@@ -25,28 +28,31 @@ class AuditRequest(BaseModel):
 
 class ToolResult(BaseModel):
     """Result from a single analysis tool."""
+
     tool_name: str
     success: bool
-    data: Dict[str, Any] = Field(default_factory=dict)
-    errors: List[str] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
+    data: dict[str, Any] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     execution_time: float = 0.0
 
 
 class AuditResult(BaseModel):
     """Complete audit result."""
+
     report_id: str
     project_path: str
     timestamp: datetime = Field(default_factory=datetime.now)
     score: float = Field(default=0.0, ge=0.0, le=100.0)
-    tool_results: Dict[str, ToolResult] = Field(default_factory=dict)
-    report_path: Optional[str] = None
+    tool_results: dict[str, ToolResult] = Field(default_factory=dict)
+    report_path: str | None = None
     summary: str = ""
     total_execution_time: float = 0.0
 
 
 class ToolInfo(BaseModel):
     """Information about an available tool."""
+
     name: str
     description: str
     version: str = "1.0.0"
@@ -55,9 +61,10 @@ class ToolInfo(BaseModel):
 
 class ToolRunRequest(BaseModel):
     """Request to run a specific tool."""
+
     path: str
-    
-    @field_validator('path')
+
+    @field_validator("path")
     @classmethod
     def validate_path(cls, v: str) -> str:
         """Validate that path exists."""
@@ -69,6 +76,7 @@ class ToolRunRequest(BaseModel):
 
 class ReportResponse(BaseModel):
     """Response containing report content."""
+
     report_id: str
     content: str
     format: str = "markdown"

@@ -1,8 +1,10 @@
 """Cleanup analysis tool - Find cache directories and reclaimable space."""
-from pathlib import Path
-from typing import Dict, Any, List
-from app.core.base_tool import BaseTool
+
 import logging
+from pathlib import Path
+from typing import Any
+
+from app.core.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
@@ -25,23 +27,23 @@ class CleanupTool(BaseTool):
     def description(self) -> str:
         return "Scans for cache directories and reclaimable disk space"
 
-    def analyze(self, project_path: Path) -> Dict[str, Any]:
-        """
-        Scan for cleanup opportunities.
+    def analyze(self, project_path: Path) -> dict[str, Any]:
+        """Scan for cleanup opportunities.
 
         Args:
             project_path: Path to the project directory
 
         Returns:
             Dictionary with cleanup targets and total reclaimable size
+
         """
         if not self.validate_path(project_path):
             return {"error": "Invalid path"}
 
         try:
-            cleanup_counts = {target: 0 for target in self.CLEANUP_TARGETS if '*' not in target}
+            cleanup_counts = {target: 0 for target in self.CLEANUP_TARGETS if "*" not in target}
             total_size_bytes = 0
-            items_found: List[str] = []
+            items_found: list[str] = []
 
             # Use case-insensitive exclusions for Windows compatibility
             exclude_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
@@ -76,7 +78,7 @@ class CleanupTool(BaseTool):
                 "total_size_bytes": total_size_bytes,
                 "cleanup_targets": {k: v for k, v in cleanup_counts.items() if v > 0},
                 "items": items_found[:20],
-                "total_items": len(items_found)
+                "total_items": len(items_found),
             }
         except Exception as e:
             logger.error(f"Cleanup scan failed: {e}")
@@ -86,7 +88,7 @@ class CleanupTool(BaseTool):
         """Calculate total size of a directory."""
         total = 0
         try:
-            for item in path.rglob('*'):
+            for item in path.rglob("*"):
                 if item.is_file():
                     try:
                         total += item.stat().st_size

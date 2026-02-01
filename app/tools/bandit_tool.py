@@ -1,11 +1,13 @@
 """Bandit security analysis tool - Python security linter."""
+
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
 from app.core.base_tool import BaseTool
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -19,29 +21,40 @@ class BanditTool(BaseTool):
     def description(self) -> str:
         return "Runs Bandit security linter to find security vulnerabilities in Python code"
 
-    def analyze(self, project_path: Path) -> Dict[str, Any]:
-        """
-        Run Bandit security analysis.
+    def analyze(self, project_path: Path) -> dict[str, Any]:
+        """Run Bandit security analysis.
 
         Args:
             project_path: Path to the project directory
 
         Returns:
             Dictionary with security issues found
+
         """
         if not self.validate_path(project_path):
-            return {"tool": "bandit", "status": "error", "error": "Invalid path", "issues": [], "total_issues": 0}
+            return {
+                "tool": "bandit",
+                "status": "error",
+                "error": "Invalid path",
+                "issues": [],
+                "total_issues": 0,
+            }
 
         try:
             target_path = Path(project_path).resolve()
 
             # Use explicit config to exclude tests and skip false positives
             cmd = [
-                sys.executable, "-m", "bandit",
-                "-c", "pyproject.toml",
-                "-r", str(target_path),
-                "-f", "json",
-                "--exit-zero"
+                sys.executable,
+                "-m",
+                "bandit",
+                "-c",
+                "pyproject.toml",
+                "-r",
+                str(target_path),
+                "-f",
+                "json",
+                "--exit-zero",
             ]
 
             try:
@@ -51,7 +64,7 @@ class BanditTool(BaseTool):
                     text=True,
                     timeout=self.DEFAULT_TIMEOUT,
                     cwd=str(target_path),  # Run from root so config is found
-                    stdin=subprocess.DEVNULL
+                    stdin=subprocess.DEVNULL,
                 )
             except subprocess.TimeoutExpired:
                 return {
@@ -59,7 +72,7 @@ class BanditTool(BaseTool):
                     "status": "error",
                     "error": f"Timeout (>{self.DEFAULT_TIMEOUT}s)",
                     "issues": [],
-                    "total_issues": 0
+                    "total_issues": 0,
                 }
             except FileNotFoundError:
                 return {
@@ -67,7 +80,7 @@ class BanditTool(BaseTool):
                     "status": "skipped",
                     "error": "Bandit not installed",
                     "issues": [],
-                    "total_issues": 0
+                    "total_issues": 0,
                 }
 
             # Parse JSON output
@@ -98,7 +111,7 @@ class BanditTool(BaseTool):
                 "issues": issues,
                 "metrics": metrics,
                 "files_scanned": files_scanned,
-                "severity_counts": severity_counts
+                "severity_counts": severity_counts,
             }
 
         except Exception as e:
@@ -108,12 +121,11 @@ class BanditTool(BaseTool):
                 "status": "error",
                 "error": str(e),
                 "issues": [],
-                "total_issues": 0
+                "total_issues": 0,
             }
 
-    def analyze_files(self, project_path: Path, files: List[str]) -> Dict[str, Any]:
-        """
-        Run Bandit security analysis on specific files.
+    def analyze_files(self, project_path: Path, files: list[str]) -> dict[str, Any]:
+        """Run Bandit security analysis on specific files.
 
         Args:
             project_path: Path to the project directory (used as cwd)
@@ -121,23 +133,34 @@ class BanditTool(BaseTool):
 
         Returns:
             Dictionary with security issues found
+
         """
         if not files:
             return {"tool": "bandit", "status": "clean", "total_issues": 0, "issues": []}
 
         if not self.validate_path(project_path):
-            return {"tool": "bandit", "status": "error", "error": "Invalid path", "issues": [], "total_issues": 0}
+            return {
+                "tool": "bandit",
+                "status": "error",
+                "error": "Invalid path",
+                "issues": [],
+                "total_issues": 0,
+            }
 
         try:
             target_path = Path(project_path).resolve()
 
-            cmd = [
-                sys.executable, "-m", "bandit",
-                "-c", "pyproject.toml",
-            ] + files + [
-                "-f", "json",
-                "--exit-zero"
-            ]
+            cmd = (
+                [
+                    sys.executable,
+                    "-m",
+                    "bandit",
+                    "-c",
+                    "pyproject.toml",
+                ]
+                + files
+                + ["-f", "json", "--exit-zero"]
+            )
 
             try:
                 result = subprocess.run(
@@ -146,7 +169,7 @@ class BanditTool(BaseTool):
                     text=True,
                     timeout=self.DEFAULT_TIMEOUT,
                     cwd=str(target_path),
-                    stdin=subprocess.DEVNULL
+                    stdin=subprocess.DEVNULL,
                 )
             except subprocess.TimeoutExpired:
                 return {
@@ -154,7 +177,7 @@ class BanditTool(BaseTool):
                     "status": "error",
                     "error": f"Timeout (>{self.DEFAULT_TIMEOUT}s)",
                     "issues": [],
-                    "total_issues": 0
+                    "total_issues": 0,
                 }
             except FileNotFoundError:
                 return {
@@ -162,7 +185,7 @@ class BanditTool(BaseTool):
                     "status": "skipped",
                     "error": "Bandit not installed",
                     "issues": [],
-                    "total_issues": 0
+                    "total_issues": 0,
                 }
 
             bandit_data = {}
@@ -180,7 +203,7 @@ class BanditTool(BaseTool):
                 "status": "issues_found" if issues else "clean",
                 "total_issues": len(issues),
                 "issues": issues,
-                "severity_counts": severity_counts
+                "severity_counts": severity_counts,
             }
 
         except Exception as e:
@@ -190,10 +213,10 @@ class BanditTool(BaseTool):
                 "status": "error",
                 "error": str(e),
                 "issues": [],
-                "total_issues": 0
+                "total_issues": 0,
             }
 
-    def _count_by_severity(self, issues: List[Dict[str, Any]]) -> Dict[str, int]:
+    def _count_by_severity(self, issues: list[dict[str, Any]]) -> dict[str, int]:
         """Count issues by severity level."""
         counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
         for issue in issues:

@@ -119,3 +119,6 @@ SELF_AUDIT_REPORT.md
 
 # Audit history cache
 .audit_index/
+
+# Archive (legacy code from MCP phase)
+archive/

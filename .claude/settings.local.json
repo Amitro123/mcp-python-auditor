@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(dir /s /b \"C:\\\\Users\\\\USER\\\\.gemini\\\\antigravity\\\\scratch\\\\mcp-python-auditor\\\\app\\\\*.py\")",
+      "Bash(powershell -Command \"Measure-Command { detect-secrets scan . --all-files --no-verify --exclude-files ''\\\\.venv'' --exclude-files ''venv'' --exclude-files ''node_modules'' --exclude-files ''\\\\.git'' --exclude-files ''__pycache__'' --exclude-files ''\\\\.pytest_cache'' --exclude-files ''build'' --exclude-files ''dist'' 2>&1 | Out-Null } | Select-Object -Property TotalSeconds\")",
+      "Bash(dir:*)",
+      "Bash(pytest:*)"
     ]
   }
 }

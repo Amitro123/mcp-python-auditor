@@ -1,10 +1,11 @@
 """Trend Analyzer - Track audit metrics over time with ASCII visualization."""
-import json
+
 import datetime
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict
+import json
 import logging
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AuditSnapshot:
     """A single point-in-time audit record."""
+
     timestamp: str
     score: int
     grade: str
@@ -24,20 +26,19 @@ class AuditSnapshot:
     duplicate_count: int
     files_scanned: int
     duration_seconds: float
-    commit_hash: Optional[str] = None
-    branch: Optional[str] = None
+    commit_hash: str | None = None
+    branch: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AuditSnapshot":
+    def from_dict(cls, data: dict[str, Any]) -> "AuditSnapshot":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
 class TrendAnalyzer:
-    """
-    Analyzes audit trends over time.
+    """Analyzes audit trends over time.
 
     Stores history in JSONL format for easy appending and parsing.
     Provides ASCII-based visualizations for terminal/markdown output.
@@ -47,11 +48,11 @@ class TrendAnalyzer:
     MAX_HISTORY_ENTRIES = 100  # Keep last 100 audits
 
     def __init__(self, project_path: Path):
-        """
-        Initialize trend analyzer.
+        """Initialize trend analyzer.
 
         Args:
             project_path: Root path of the project being audited
+
         """
         self.project_path = Path(project_path).resolve()
         self.index_dir = self.project_path / ".audit_index"
@@ -64,14 +65,13 @@ class TrendAnalyzer:
         # Add to .gitignore if not already there
         gitignore = self.project_path / ".gitignore"
         if gitignore.exists():
-            content = gitignore.read_text(encoding='utf-8')
+            content = gitignore.read_text(encoding="utf-8")
             if ".audit_index/" not in content:
-                with open(gitignore, 'a', encoding='utf-8') as f:
+                with open(gitignore, "a", encoding="utf-8") as f:
                     f.write("\n# Audit history cache\n.audit_index/\n")
 
-    def record_audit(self, results: Dict[str, Any], score: int, grade: str) -> AuditSnapshot:
-        """
-        Record an audit result to history.
+    def record_audit(self, results: dict[str, Any], score: int, grade: str) -> AuditSnapshot:
+        """Record an audit result to history.
 
         Args:
             results: Full audit results dictionary
@@ -80,6 +80,7 @@ class TrendAnalyzer:
 
         Returns:
             The created AuditSnapshot
+
         """
         self._ensure_index_dir()
 
@@ -102,7 +103,7 @@ class TrendAnalyzer:
         )
 
         # Append to JSONL file
-        with open(self.history_file, 'a', encoding='utf-8') as f:
+        with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(snapshot.to_dict()) + "\n")
 
         # Trim old entries if needed
@@ -116,29 +117,29 @@ class TrendAnalyzer:
         if not self.history_file.exists():
             return
 
-        lines = self.history_file.read_text(encoding='utf-8').strip().split('\n')
+        lines = self.history_file.read_text(encoding="utf-8").strip().split("\n")
         if len(lines) > self.MAX_HISTORY_ENTRIES:
             # Keep only the most recent entries
-            trimmed = lines[-self.MAX_HISTORY_ENTRIES:]
-            self.history_file.write_text('\n'.join(trimmed) + '\n', encoding='utf-8')
+            trimmed = lines[-self.MAX_HISTORY_ENTRIES :]
+            self.history_file.write_text("\n".join(trimmed) + "\n", encoding="utf-8")
             logger.debug(f"Trimmed history from {len(lines)} to {len(trimmed)} entries")
 
-    def get_history(self, limit: int = 20) -> List[AuditSnapshot]:
-        """
-        Get recent audit history.
+    def get_history(self, limit: int = 20) -> list[AuditSnapshot]:
+        """Get recent audit history.
 
         Args:
             limit: Maximum number of entries to return
 
         Returns:
             List of AuditSnapshot objects, most recent last
+
         """
         if not self.history_file.exists():
             return []
 
         snapshots = []
         try:
-            lines = self.history_file.read_text(encoding='utf-8').strip().split('\n')
+            lines = self.history_file.read_text(encoding="utf-8").strip().split("\n")
             for line in lines[-limit:]:
                 if line.strip():
                     try:
@@ -151,20 +152,17 @@ class TrendAnalyzer:
 
         return snapshots
 
-    def get_trend_summary(self) -> Dict[str, Any]:
-        """
-        Get a summary of trends from recent history.
+    def get_trend_summary(self) -> dict[str, Any]:
+        """Get a summary of trends from recent history.
 
         Returns:
             Dictionary with trend analysis
+
         """
         history = self.get_history(limit=10)
 
         if len(history) < 2:
-            return {
-                "has_history": False,
-                "message": "Not enough history for trend analysis"
-            }
+            return {"has_history": False, "message": "Not enough history for trend analysis"}
 
         current = history[-1]
         previous = history[-2]
@@ -202,19 +200,11 @@ class TrendAnalyzer:
             "trend": trend,
             "trend_emoji": trend_emoji,
             "sparkline": self.generate_sparkline([h.score for h in history]),
-            "coverage_sparkline": self.generate_sparkline(
-                [h.coverage_percent for h in history], max_val=100
-            ),
+            "coverage_sparkline": self.generate_sparkline([h.coverage_percent for h in history], max_val=100),
         }
 
-    def generate_sparkline(
-        self,
-        values: List[float],
-        width: int = 10,
-        max_val: Optional[float] = None
-    ) -> str:
-        """
-        Generate an ASCII sparkline from values.
+    def generate_sparkline(self, values: list[float], width: int = 10, max_val: float | None = None) -> str:
+        """Generate an ASCII sparkline from values.
 
         Args:
             values: List of numeric values
@@ -223,6 +213,7 @@ class TrendAnalyzer:
 
         Returns:
             ASCII sparkline string
+
         """
         if not values:
             return "─" * width
@@ -251,11 +242,11 @@ class TrendAnalyzer:
         return sparkline
 
     def generate_trend_report(self) -> str:
-        """
-        Generate a markdown trend report section.
+        """Generate a markdown trend report section.
 
         Returns:
             Markdown string for inclusion in audit report
+
         """
         summary = self.get_trend_summary()
 
@@ -269,9 +260,9 @@ class TrendAnalyzer:
             f"**Score Trend:** {summary['trend_emoji']} {summary['trend'].title()}",
             "",
             "### Score History",
-            f"```",
+            "```",
             f"Score: {summary['sparkline']} ({summary['previous_score']} → {summary['current_score']})",
-            f"```",
+            "```",
             "",
         ]
 
@@ -298,12 +289,12 @@ class TrendAnalyzer:
         lines.append("")
         return "\n".join(lines)
 
-    def get_improvement_suggestions(self) -> List[str]:
-        """
-        Generate improvement suggestions based on trends.
+    def get_improvement_suggestions(self) -> list[str]:
+        """Generate improvement suggestions based on trends.
 
         Returns:
             List of actionable suggestions
+
         """
         history = self.get_history(limit=5)
         suggestions = []

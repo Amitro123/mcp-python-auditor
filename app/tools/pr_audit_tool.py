@@ -2,12 +2,14 @@
 
 Uses BanditTool and FastAuditTool for analysis to avoid code duplication.
 """
+
+import logging
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
 from app.core.base_tool import BaseTool
 from app.tools.bandit_tool import BanditTool
 from app.tools.fast_audit_tool import FastAuditTool
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +31,8 @@ class PRAuditTool(BaseTool):
     def description(self) -> str:
         return "Runs security and quality scans on changed files for PR gatekeeper"
 
-    def analyze(self, project_path: Path, changed_files: List[str] = None) -> Dict[str, Any]:
-        """
-        Analyze changed files for PR.
+    def analyze(self, project_path: Path, changed_files: list[str] = None) -> dict[str, Any]:
+        """Analyze changed files for PR.
 
         Args:
             project_path: Path to the project directory
@@ -39,6 +40,7 @@ class PRAuditTool(BaseTool):
 
         Returns:
             Dictionary with scan results, score, and recommendation
+
         """
         if not self.validate_path(project_path):
             return {"status": "error", "error": "Invalid path"}
@@ -48,7 +50,7 @@ class PRAuditTool(BaseTool):
                 "status": "success",
                 "message": "No Python changes detected",
                 "score": 100,
-                "recommendation": "ready_for_review"
+                "recommendation": "ready_for_review",
             }
 
         target = Path(project_path).resolve()
@@ -75,10 +77,10 @@ class PRAuditTool(BaseTool):
             "changed_files_count": len(changed_files),
             "bandit": bandit_result,
             "ruff": ruff_result,
-            "complexity": complexity_result
+            "complexity": complexity_result,
         }
 
-    def _transform_bandit_result(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+    def _transform_bandit_result(self, raw: dict[str, Any]) -> dict[str, Any]:
         """Transform BanditTool result to PR audit format."""
         if raw.get("error"):
             return {"error": raw["error"], "total_issues": 0, "issues": []}
@@ -89,13 +91,13 @@ class PRAuditTool(BaseTool):
                 "file": issue.get("filename"),
                 "line": issue.get("line_number"),
                 "description": issue.get("issue_text"),
-                "code": issue.get("test_id")
+                "code": issue.get("test_id"),
             }
             for issue in raw.get("issues", [])
         ]
         return {"total_issues": len(issues), "issues": issues[:10]}
 
-    def _transform_ruff_result(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+    def _transform_ruff_result(self, raw: dict[str, Any]) -> dict[str, Any]:
         """Transform FastAuditTool result to PR audit format."""
         if raw.get("error"):
             return {"error": raw["error"], "total_issues": 0, "issues": []}
@@ -111,13 +113,13 @@ class PRAuditTool(BaseTool):
                 "filename": issue.get("file", ""),
                 "code": issue.get("code", ""),
                 "message": issue.get("message", ""),
-                "location": {"row": issue.get("line", 0), "column": issue.get("column", 0)}
+                "location": {"row": issue.get("line", 0), "column": issue.get("column", 0)},
             }
             for issue in all_issues
         ]
         return {"total_issues": len(issues), "issues": issues[:10]}
 
-    def _extract_complexity_from_ruff(self, raw: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_complexity_from_ruff(self, raw: dict[str, Any]) -> dict[str, Any]:
         """Extract complexity findings from FastAuditTool result."""
         if raw.get("error"):
             return {"error": raw["error"], "total_high_complexity": 0, "functions": []}
@@ -128,7 +130,7 @@ class PRAuditTool(BaseTool):
                 "file": Path(issue.get("file", "")).name,
                 "function": issue.get("message", "").split("'")[1] if "'" in issue.get("message", "") else "unknown",
                 "complexity": self._parse_complexity_from_message(issue.get("message", "")),
-                "rank": self._complexity_to_rank(self._parse_complexity_from_message(issue.get("message", "")))
+                "rank": self._complexity_to_rank(self._parse_complexity_from_message(issue.get("message", ""))),
             }
             for issue in complexity_issues
         ]
@@ -137,27 +139,25 @@ class PRAuditTool(BaseTool):
     def _parse_complexity_from_message(self, message: str) -> int:
         """Parse complexity value from Ruff C90x message."""
         import re
-        match = re.search(r'complexity of (\d+)', message)
+
+        match = re.search(r"complexity of (\d+)", message)
         return int(match.group(1)) if match else 0
 
     def _complexity_to_rank(self, complexity: int) -> str:
         """Convert complexity score to letter rank."""
         if complexity <= 5:
             return "A"
-        elif complexity <= 10:
+        if complexity <= 10:
             return "B"
-        elif complexity <= 20:
+        if complexity <= 20:
             return "C"
-        elif complexity <= 30:
+        if complexity <= 30:
             return "D"
-        elif complexity <= 40:
+        if complexity <= 40:
             return "E"
-        else:
-            return "F"
+        return "F"
 
-    def _calculate_score(
-        self, bandit: Dict[str, Any], ruff: Dict[str, Any], complexity: Dict[str, Any]
-    ) -> int:
+    def _calculate_score(self, bandit: dict[str, Any], ruff: dict[str, Any], complexity: dict[str, Any]) -> int:
         """Calculate PR score based on scan results."""
         score = 100
 
@@ -178,24 +178,23 @@ class PRAuditTool(BaseTool):
 
         return max(0, score)
 
-    def _get_recommendation(self, bandit: Dict[str, Any], score: int) -> str:
+    def _get_recommendation(self, bandit: dict[str, Any], score: int) -> str:
         """Get recommendation based on results."""
         if bandit.get("total_issues", 0) > 0:
             return "request_changes"
-        elif score >= 80:
+        if score >= 80:
             return "ready_for_review"
-        else:
-            return "needs_improvement"
+        return "needs_improvement"
 
     def generate_report(
         self,
         base_branch: str,
-        changed_files: List[str],
-        result: Dict[str, Any],
+        changed_files: list[str],
+        result: dict[str, Any],
         tests_passed: bool = True,
         test_output: str = "",
         run_tests: bool = True,
-        target: Path = None
+        target: Path = None,
     ) -> str:
         """Generate Markdown report for PR audit."""
         score = result.get("score", 0)
@@ -227,7 +226,7 @@ class PRAuditTool(BaseTool):
         if bandit_count > 0:
             md.append(f"**Status:** {bandit_count} issue(s) found")
             for issue in bandit.get("issues", [])[:5]:
-                fname = Path(issue.get('file', '')).name
+                fname = Path(issue.get("file", "")).name
                 md.append(f"- **{issue.get('severity')}** in `{fname}:{issue.get('line')}`: {issue.get('description', '')}")
         else:
             md.append("**Status:** No security issues detected")
@@ -240,8 +239,8 @@ class PRAuditTool(BaseTool):
         if ruff_count > 0:
             md.append(f"**Status:** {ruff_count} issue(s) found")
             for issue in ruff.get("issues", [])[:5]:
-                fname = Path(issue.get('filename', '')).name
-                row = issue.get('location', {}).get('row', '?')
+                fname = Path(issue.get("filename", "")).name
+                row = issue.get("location", {}).get("row", "?")
                 md.append(f"- `{fname}:{row}` - {issue.get('code')}: {issue.get('message', '')}")
         else:
             md.append("**Status:** No linting issues detected")

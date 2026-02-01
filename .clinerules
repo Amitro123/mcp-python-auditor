@@ -1,0 +1,18 @@
+Project: Python Audit CLI - Fast parallel code quality analysis
+
+Key file:
+- audit.py: Unified CLI tool (10 tools + AI insights) - STABLE
+
+Usage:
+- python audit.py           # Interactive mode with AI
+- python audit.py <path>    # Direct audit
+- python audit.py . --fast  # Fast audit (skip slow tools)
+- python audit.py . --pr    # PR mode (changed files only)
+
+Features:
+- 10 analysis tools running in parallel batches of 4
+- Smart file filtering (excludes .venv, node_modules, etc.)
+- AI insights via Groq/Ollama (optional)
+- Auto-fix with ruff check --fix and ruff format
+
+Test: python audit.py . --fast

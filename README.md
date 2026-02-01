@@ -1,36 +1,38 @@
-# ProjectAuditAgent 🕵️‍♂️
+# Python Audit CLI
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115.0-green.svg)](https://fastapi.tiangolo.com/)
-[![MCP Ready](https://img.shields.io/badge/MCP-Ready-purple.svg)](https://modelcontextprotocol.io/)
 
-**Production-ready Model Context Protocol (MCP) server for deep Python/FastAPI project analysis.**
+**Fast parallel Python code auditor with 10 analysis tools and AI insights.**
 
-ProjectAuditAgent performs AST-based code analysis to detect duplicates, dead code, efficiency issues, and security risks, generating actionable markdown reports with **realistic scores** and **comprehensive insights**.
+```bash
+# Interactive mode (with AI suggestions)
+python audit.py
 
-> **🚀 NEW in v3.0:** [**Architecture Overhaul**](docs/ARCHITECTURE_V3.md) - **Major Refactoring Completed!**
-> **🏗️ Modular Design:** Server reduced by 38% (1113 lines), logic migrated to 15 dedicated Tool classes.
-> **⚡ Performance:** 95.8s → 3.4s with caching (-97%).
-> **🧩 AuditOrchestrator:** Centralized, robust audit management.
-> **🛠️ Unified Tool Interface:** Consistent behavior across all analysis tools.
+# Direct audit
+python audit.py /path/to/project
 
-> **🚀 NEW in v2.7:** [**Performance Optimization Suite**](docs/OPTIMIZATION_ARCHITECTURE.md) - **35-880x faster** audits with caching & Ruff!  
-> **⚡ Intelligent Caching:** Instant results (0.1s) for unchanged code with smart file-based invalidation  
-> **🔥 Ruff Comprehensive:** Single tool replaces 6+ linters (Bandit, pycodestyle, isort, pyflakes, McCabe, pydocstyle)  
-> **📁 Smart Filtering:** Automatically excludes 50-80% of irrelevant files (node_modules, .venv, etc.)  
-> Perfect for rapid iteration and CI/CD pipelines. [Architecture →](docs/OPTIMIZATION_ARCHITECTURE.md)
+# Fast audit (skip slow tools)
+python audit.py . --fast
 
-> **🎯 NEW in v2.8:** [**Incremental Audit System**](docs/INCREMENTAL_AUDIT_GUIDE.md) - **90%+ faster** audits by analyzing only changed files!  
-> **🔄 Smart Change Detection:** MD5-based file tracking detects new, modified, and deleted files  
-> **💾 Per-Tool Caching:** Merges cached results with new analysis for accurate reports  
-> **⚡ Massive Time Savings:** 60s → 5s on subsequent runs (analyze 3 files instead of 100!)  
-> **📊 Performance Feedback:** Clear metrics showing exactly how much time you saved  
-> Perfect for development workflows and CI/CD optimization. [Guide →](docs/INCREMENTAL_AUDIT_GUIDE.md)
+# PR mode (only changed files)
+python audit.py . --pr
+```
 
-> **🆕 NEW in v2.5:** [**Safety-First Engine**](docs/SAFETY_FIRST_IMPLEMENTATION.md) - Robust, crash-proof auditing for large projects!  
-> **🆕 NEW in v2.3:** [**PR Gatekeeper**](docs/PR_GATEKEEPER_GUIDE.md) - Lightning-fast delta-based auditing for Pull Requests!  
-> Scans ONLY changed files (3-5x faster), runs tests as safety net, returns explicit recommendations.  
-> Perfect for CI/CD pipelines. [Quick Start →](docs/PR_GATEKEEPER_QUICK_REF.md)
+## Quick Start
+
+```bash
+pip install -r requirements.txt
+python audit.py
+```
+
+## Features
+
+- **10 Analysis Tools**: bandit, secrets, pip-audit, ruff, duplication, deadcode, cleanup, coverage, complexity, typing
+- **Parallel Execution**: Runs tools in batches of 4 for speed
+- **Smart File Filtering**: Automatically excludes .venv, node_modules, etc.
+- **AI Insights**: Optional Groq/Ollama integration for fix suggestions
+- **Auto-Fix**: One-click ruff fixes
+- **Score**: 0-100 with letter grades (A+ to F)
 
 ---
 
