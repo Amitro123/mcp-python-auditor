@@ -182,8 +182,4 @@ class AuditConfig:
         exclude_patterns = self.get_exclude_paths()
         path_str = str(path)
 
-        for pattern in exclude_patterns:
-            if pattern in path_str:
-                return True
-
-        return False
+        return any(pattern in path_str for pattern in exclude_patterns)

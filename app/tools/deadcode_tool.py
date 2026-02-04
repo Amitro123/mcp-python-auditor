@@ -19,7 +19,7 @@ class DeadcodeTool(BaseTool):
     def description(self) -> str:
         return "Detects unused functions, classes, variables, and imports using Vulture"
 
-    def analyze(self, project_path: Path, file_list: list[str] = None) -> dict[str, Any]:
+    def analyze(self, project_path: Path, file_list: list[str] | None = None) -> dict[str, Any]:
         """Analyze code for dead/unused code using Vulture with explicit file list.
 
         SAFETY-FIRST EXECUTION:
@@ -64,7 +64,7 @@ class DeadcodeTool(BaseTool):
             if len(file_list) > MAX_FILES:
                 logger.warning(f"Vulture: Limiting scan to {MAX_FILES} files (from {len(file_list)})")
                 file_list = file_list[:MAX_FILES]
-            logger.info(f"✅ Vulture: Analyzing {len(file_list)} Python files (explicit list)")
+            logger.info(f"[OK] Vulture: Analyzing {len(file_list)} Python files (explicit list)")
 
         try:
             # Run vulture with JSON output using subprocess directly to handle exit codes
@@ -123,7 +123,7 @@ class DeadcodeTool(BaseTool):
                 stdout = result.stdout
 
             except subprocess.TimeoutExpired:
-                logger.error("Vulture timed out")
+                logger.exception("Vulture timed out")
                 return {"error": "Vulture timed out"}
             except FileNotFoundError:
                 logger.warning("Vulture command not found")
@@ -150,7 +150,7 @@ class DeadcodeTool(BaseTool):
             }
 
         except Exception as e:
-            logger.error(f"Dead code analysis failed: {e}")
+            logger.exception(f"Dead code analysis failed: {e}")
             return {"error": str(e)}
 
     def _parse_vulture_output(self, output: str) -> list[dict[str, Any]]:

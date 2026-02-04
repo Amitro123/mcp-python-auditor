@@ -34,7 +34,7 @@ class ReportGenerator:
         score: int,
         tool_results: dict[str, Any],
         timestamp: datetime,
-        scanned_files: list[str] = None,
+        scanned_files: list[str] | None = None,
     ) -> str:
         """Generate an Enterprise-grade actionable markdown report with integrity validation."""
         from app.core.audit_validator import validate_report_integrity
@@ -359,7 +359,7 @@ class ReportGenerator:
             issues = pytest_health.get("issues", [])
             fixes = pytest_health.get("fixes", [])
             f.write(f"**Pytest Issues:** {len(issues)}\n")
-            for issue, fix in zip(issues, fixes):
+            for issue, fix in zip(issues, fixes, strict=False):
                 f.write(f"- {issue} → `{fix}`\n")
             f.write("\n")
 

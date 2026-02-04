@@ -167,10 +167,7 @@ def _calculate_penalties(raw_results: dict[str, Any]) -> dict[str, int]:
     security = raw_results.get("bandit") or raw_results.get("security", {})
     secrets = raw_results.get("secrets", {})
 
-    if "code_security" in security:
-        security_issues = len(security["code_security"].get("issues", []))
-    else:
-        security_issues = len(security.get("issues", []))
+    security_issues = len(security["code_security"].get("issues", [])) if "code_security" in security else len(security.get("issues", []))
 
     secrets_found = len(secrets.get("secrets", []))
 
@@ -208,10 +205,7 @@ def _get_security_severity(raw_results: dict[str, Any]) -> dict[str, str]:
     """Get security severity label and description."""
     security = raw_results.get("bandit") or raw_results.get("security", {})
 
-    if "code_security" in security:
-        issues = len(security["code_security"].get("issues", []))
-    else:
-        issues = len(security.get("issues", []))
+    issues = len(security["code_security"].get("issues", [])) if "code_security" in security else len(security.get("issues", []))
 
     if issues == 0:
         return {"label": "✅ Clean", "description": "No security issues detected"}

@@ -68,7 +68,7 @@ class FastAuditTool(BaseTool):
                 errors="replace",  # Handle encoding issues on Windows
             )
 
-            if result.returncode != 0 and result.returncode != 1:
+            if result.returncode not in {0, 1}:
                 # returncode 1 means findings were found (expected)
                 # returncode 0 means no findings
                 # anything else is an error
@@ -83,7 +83,7 @@ class FastAuditTool(BaseTool):
             try:
                 findings = json.loads(result.stdout)
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse Ruff output: {e}")
+                logger.exception(f"Failed to parse Ruff output: {e}")
                 return {"error": f"Failed to parse Ruff output: {e}"}
 
             # Categorize findings
@@ -98,7 +98,7 @@ class FastAuditTool(BaseTool):
             return categorized
 
         except subprocess.TimeoutExpired:
-            logger.error("Ruff execution timed out after 60 seconds")
+            logger.exception("Ruff execution timed out after 60 seconds")
             return {"error": "Ruff execution timed out"}
         except Exception as e:
             logger.error(f"FastAudit failed: {e}", exc_info=True)
@@ -146,7 +146,7 @@ class FastAuditTool(BaseTool):
 
         # Calculate statistics
         total_issues = len(findings)
-        files_with_issues = len(set(f.get("filename", "") for f in findings))
+        files_with_issues = len({f.get("filename", "") for f in findings})
 
         return {
             "tool": "ruff",
@@ -260,14 +260,7 @@ class FastAuditTool(BaseTool):
             logger.info(f"FastAudit: Running Ruff check on {len(files)} files...")
 
             cmd = (
-                [
-                    sys.executable,
-                    "-m",
-                    "ruff",
-                    "check",
-                ]
-                + files
-                + ["--output-format", "json", "--exit-zero"]
+                [sys.executable, "-m", "ruff", "check", *files, "--output-format", "json", "--exit-zero"]
             )
 
             result = subprocess.run(
@@ -280,7 +273,7 @@ class FastAuditTool(BaseTool):
                 errors="replace",
             )
 
-            if result.returncode != 0 and result.returncode != 1:
+            if result.returncode not in {0, 1}:
                 logger.error(f"Ruff failed with code {result.returncode}: {result.stderr}")
                 return {"error": f"Ruff execution failed: {result.stderr}"}
 
@@ -291,13 +284,13 @@ class FastAuditTool(BaseTool):
             try:
                 findings = json.loads(result.stdout)
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse Ruff output: {e}")
+                logger.exception(f"Failed to parse Ruff output: {e}")
                 return {"error": f"Failed to parse Ruff output: {e}"}
 
             return self._categorize_findings(findings)
 
         except subprocess.TimeoutExpired:
-            logger.error("Ruff execution timed out after 60 seconds")
+            logger.exception("Ruff execution timed out after 60 seconds")
             return {"error": "Ruff execution timed out"}
         except Exception as e:
             logger.error(f"FastAudit file analysis failed: {e}", exc_info=True)

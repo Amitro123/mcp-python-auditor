@@ -77,9 +77,15 @@ class AuditOrchestrator(LoggingMixin):
         async def runner():
             cached = self.cache_mgr.get_cached_result(name, patterns)
             if cached:
-                return cached
+                # Don't return cached errors - re-run the tool
+                if cached.get("status") == "error":
+                    self._log(f"Ignoring cached error for {name}, re-running...")
+                else:
+                    return cached
             result = await asyncio.to_thread(run_func, self.project_path)
-            self.cache_mgr.save_result(name, result, patterns)
+            # Only cache successful results (no errors)
+            if result.get("status") != "error":
+                self.cache_mgr.save_result(name, result, patterns)
             return result
 
         return runner
@@ -92,11 +98,14 @@ class AuditOrchestrator(LoggingMixin):
 
         return runner
 
-    async def run_full_audit(self, tool_runners: dict[str, Callable[[Path], dict[str, Any]]], job_id: str) -> dict[str, Any]:
+    async def run_full_audit(
+        self, tool_runners: dict[str, Callable[[Path], dict[str, Any]]] | None = None, tool_instances: dict[str, Any] | None = None, job_id: str = ""
+    ) -> dict[str, Any]:
         """Run a full audit with all registered tools.
 
         Args:
-            tool_runners: Dict mapping tool names to their run functions
+            tool_runners: DEPRECATED - Dict mapping tool names to their run functions
+            tool_instances: Dict mapping tool names to tool instances (preferred)
             job_id: Unique identifier for this audit job
 
         Returns:
@@ -105,22 +114,6 @@ class AuditOrchestrator(LoggingMixin):
         """
         start_time = time.time()
 
-        # Define cache patterns for each tool
-        cache_patterns = {
-            "bandit": ["**/*.py"],
-            "secrets": ["**/*"],
-            "ruff": ["**/*.py"],
-            "pip_audit": ["requirements.txt", "pyproject.toml", "setup.py"],
-            "structure": ["**/*.py"],
-            "dead_code": ["**/*.py"],
-            "efficiency": ["**/*.py"],
-            "duplication": ["**/*.py"],
-            "git_info": [".git/HEAD", ".git/index"],
-            "architecture": ["**/*.py"],
-            "tests": ["tests/**/*.py", "**/*.py", "pytest.ini", "pyproject.toml"],
-            "typing": ["**/*.py"],
-        }
-
         # Tools that don't need caching (fast or state-dependent)
         uncached_tools = {"cleanup", "gitignore"}
 
@@ -128,15 +121,44 @@ class AuditOrchestrator(LoggingMixin):
         tasks = []
         task_names = []
 
-        for name, run_func in tool_runners.items():
-            if name in uncached_tools:
-                runner = self._create_uncached_runner(run_func)
-            else:
-                patterns = cache_patterns.get(name, ["**/*.py"])
-                runner = self._create_cached_runner(name, run_func, patterns)
+        # Support both old (tool_runners) and new (tool_instances) API
+        if tool_instances:
+            for name, tool in tool_instances.items():
+                if name in uncached_tools:
+                    runner = self._create_uncached_runner(lambda p, t=tool: t.analyze(p))
+                else:
+                    # Extract cache patterns from tool instance
+                    patterns = tool.cache_patterns if hasattr(tool, "cache_patterns") else ["**/*.py"]
+                    runner = self._create_cached_runner(name, lambda p, t=tool: t.analyze(p), patterns)
 
-            tasks.append(self._run_with_log(name.title(), runner()))
-            task_names.append(name)
+                tasks.append(self._run_with_log(name.title(), runner()))
+                task_names.append(name)
+        elif tool_runners:
+            # Legacy path - use hardcoded patterns (for backwards compatibility)
+            cache_patterns = {
+                "bandit": ["**/*.py"],
+                "secrets": ["**/*"],
+                "ruff": ["**/*.py"],
+                "pip_audit": ["requirements.txt", "pyproject.toml", "setup.py"],
+                "structure": ["**/*.py"],
+                "dead_code": ["**/*.py"],
+                "efficiency": ["**/*.py"],
+                "duplication": ["**/*.py"],
+                "git_info": [".git/HEAD", ".git/index"],
+                "architecture": ["**/*.py"],
+                "tests": ["tests/**/*.py", "**/*.py", "pytest.ini", "pyproject.toml"],
+                "typing": ["**/*.py"],
+            }
+
+            for name, run_func in tool_runners.items():
+                if name in uncached_tools:
+                    runner = self._create_uncached_runner(run_func)
+                else:
+                    patterns = cache_patterns.get(name, ["**/*.py"])
+                    runner = self._create_cached_runner(name, run_func, patterns)
+
+                tasks.append(self._run_with_log(name.title(), runner()))
+                task_names.append(name)
 
         # Run all tools in parallel
         self._log(f"Launching {len(tasks)} tools in parallel with caching...")
@@ -144,7 +166,7 @@ class AuditOrchestrator(LoggingMixin):
 
         # Build result dictionary
         duration_seconds = time.time() - start_time
-        result_dict = {name: result for name, result in zip(task_names, results)}
+        result_dict = dict(zip(task_names, results, strict=False))
         result_dict["duration_seconds"] = duration_seconds
         result_dict["installed_tools"] = []
 

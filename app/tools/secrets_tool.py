@@ -3,7 +3,6 @@
 import json
 import logging
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +17,11 @@ class SecretsTool(BaseTool):
     @property
     def description(self) -> str:
         return "Scans for secrets using detect-secrets (Smart Targeted)."
+
+    @property
+    def cache_patterns(self) -> list[str]:
+        """Secrets can be in any file type."""
+        return ["**/*"]
 
     def analyze(self, project_path: Path) -> dict[str, Any]:
         """Analyze project for secrets using smart target discovery.
@@ -34,117 +38,93 @@ class SecretsTool(BaseTool):
 
         target_path = Path(project_path).resolve()
 
-        # --- SMART TARGETING (Same as Bandit) ---
-        known_source_dirs = ["src", "app", "scripts", "lib", "core", "backend", "api"]
-        scan_targets: list[str] = []
+        # --- SMART TARGETING ---
+        # Separate directories and files (detect-secrets has a bug when mixing them)
+        scan_dirs: list[str] = []
+        scan_files: list[str] = []
 
+        # 1. Scan known source directories
+        known_source_dirs = ["src", "app", "scripts", "lib", "core", "backend", "api"]
         for folder in known_source_dirs:
             p = target_path / folder
             if p.exists() and p.is_dir():
-                scan_targets.append(str(p))
+                scan_dirs.append(str(p))
 
-        # Determine paths to scan
-        files_to_scan = scan_targets if scan_targets else [str(target_path)]
+        # 2. Collect root-level config files (common secret locations)
+        config_patterns = [
+            ".env",  # Exact match for .env file
+            "*.env",  # Files ending in .env (local.env, prod.env)
+            ".env.*",  # Files like .env.local, .env.production
+            "*.json",
+            "*.yaml",
+            "*.yml",
+            "*.toml",
+            "*.ini",
+            "*.conf",
+            "*.config",
+        ]
 
-        logger.info(f"Secrets scan targets: {files_to_scan}")
-        print(f"[SECRETS] Smart Scan Targets: {files_to_scan}", file=sys.stderr)
+        seen_files: set[str] = set()
+        for pattern in config_patterns:
+            for config_file in target_path.glob(pattern):
+                # Skip files in subdirectories (we already scan source dirs)
+                if config_file.parent == target_path and config_file.is_file():
+                    # Skip known safe files and duplicates, and .env files (security best practice is to not scan local .env)
+                    if config_file.name not in ["pyproject.toml", "package.json", "tsconfig.json", ".env"]:
+                        file_str = str(config_file)
+                        if file_str not in seen_files:
+                            seen_files.add(file_str)
+                            scan_files.append(file_str)
 
-        # Build command: detect-secrets scan [path1] [path2] ...
-        cmd = ["detect-secrets", "scan"] + files_to_scan
+        logger.info(f"Secrets scan - directories: {scan_dirs}, files: {scan_files}")
 
-        # Exclusions (only needed if we fell back to root)
-        if not scan_targets:
-            cmd.extend(
-                [
-                    "--exclude-files",
-                    "node_modules",
-                    "--exclude-files",
-                    "external_libs",
-                    "--exclude-files",
-                    "venv",
-                    "--exclude-files",
-                    ".venv",
-                    "--exclude-files",
-                    "dist",
-                    "--exclude-files",
-                    "build",
-                    "--exclude-files",
-                    "__pycache__",
-                    "--exclude-files",
-                    ".git",
-                    "--exclude-files",
-                    "htmlcov",
-                    "--exclude-files",
-                    ".pytest_cache",
-                    "--exclude-files",
-                    "frontend/test-results",
-                    "--exclude-files",
-                    "playwright-report",
-                    "--exclude-files",
-                    "test-results",
-                ]
-            )
+        all_secrets: list[dict[str, Any]] = []
+        all_targets: list[str] = []
 
         try:
-            # 300 Seconds Timeout (5 Minutes)
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            # Scan directories (if any)
+            if scan_dirs:
+                all_targets.extend(scan_dirs)
+                dir_secrets = self._run_scan(scan_dirs)
+                all_secrets.extend(dir_secrets)
 
-            try:
-                data = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                data = {"results": {}}
+            # Scan standalone files separately (detect-secrets bug workaround)
+            if scan_files:
+                all_targets.extend(scan_files)
+                file_secrets = self._run_scan(scan_files)
+                all_secrets.extend(file_secrets)
 
-            secrets: list[dict[str, Any]] = []
-
-            # Extract and filter results
-            for file_path, findings in data.get("results", {}).items():
-                # Safety filter - skip unwanted paths
-                if any(
-                    x in file_path
-                    for x in [
+            # Fallback: scan root if nothing else to scan
+            if not scan_dirs and not scan_files:
+                all_targets.append(str(target_path))
+                root_secrets = self._run_scan(
+                    [str(target_path)],
+                    exclude_patterns=[
                         "node_modules",
                         "external_libs",
-                        "tests",
-                        ".min.js",
-                        ".map",
-                        ".venv",
                         "venv",
+                        ".venv",
+                        "dist",
+                        "build",
                         "__pycache__",
+                        ".git",
+                        "htmlcov",
+                        ".pytest_cache",
                         "frontend/test-results",
                         "playwright-report",
-                    ]
-                ):
-                    continue
-
-                for finding in findings:
-                    secrets.append(
-                        {
-                            "file": file_path,
-                            "line": finding.get("line_number", 0),
-                            "type": finding.get("type", "Unknown"),
-                            "hashed_secret": finding.get("hashed_secret", "")[:16] + "...",
-                        }
-                    )
+                    ],
+                )
+                all_secrets.extend(root_secrets)
 
             return {
                 "tool": "secrets",
-                "status": "issues_found" if secrets else "clean",
-                "secrets": secrets,
-                "total_secrets": len(secrets),
-                "files_with_secrets": len(set(s["file"] for s in secrets)),
-                "scan_targets": files_to_scan,
+                "status": "issues_found" if all_secrets else "clean",
+                "secrets": all_secrets,
+                "total_secrets": len(all_secrets),
+                "files_with_secrets": len({s["file"] for s in all_secrets}),
+                "scan_targets": all_targets,
             }
 
-        except subprocess.TimeoutExpired:
-            logger.error(f"Secrets scan timed out (>300s) on targets: {files_to_scan}")
-            return {
-                "tool": "secrets",
-                "status": "error",
-                "error": "Timeout: Secrets scan took too long (>300s).",
-                "debug_targets": str(files_to_scan),
-                "secrets": [],
-                "total_secrets": 0,
-            }
         except FileNotFoundError:
             logger.warning("detect-secrets not installed")
             return {
@@ -154,5 +134,66 @@ class SecretsTool(BaseTool):
                 "total_secrets": 0,
             }
         except Exception as e:
-            logger.error(f"Secrets scan failed: {e}")
+            logger.exception(f"Secrets scan failed: {e}")
             return {"error": str(e), "status": "error", "secrets": [], "total_secrets": 0}
+
+    def _run_scan(
+        self,
+        paths: list[str],
+        exclude_patterns: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run detect-secrets scan on given paths.
+
+        Args:
+            paths: List of file/directory paths to scan
+            exclude_patterns: Optional patterns to exclude
+
+        Returns:
+            List of secret findings
+        """
+        cmd = ["detect-secrets", "scan", "--no-verify", *paths]
+
+        if exclude_patterns:
+            for pattern in exclude_patterns:
+                cmd.extend(["--exclude-files", pattern])
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse detect-secrets output: {result.stdout[:200]}")
+            return []
+
+        secrets: list[dict[str, Any]] = []
+
+        # Extract and filter results
+        for file_path, findings in data.get("results", {}).items():
+            # Safety filter - skip unwanted paths
+            if any(
+                x in file_path
+                for x in [
+                    "node_modules",
+                    "external_libs",
+                    ".min.js",
+                    ".map",
+                    ".venv",
+                    "venv",
+                    "__pycache__",
+                    "frontend/test-results",
+                    "playwright-report",
+                ]
+            ):
+                continue
+
+            for finding in findings:
+                secrets.append(
+                    {
+                        "file": file_path,
+                        "line": finding.get("line_number", 0),
+                        "type": finding.get("type", "Unknown"),
+                        "hashed_secret": finding.get("hashed_secret", "")[:16] + "...",
+                    }
+                )
+
+        return secrets

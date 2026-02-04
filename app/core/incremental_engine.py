@@ -137,7 +137,7 @@ class IncrementalEngine:
                     self._cache_tool_result(tool_name, tool_result)
 
             except Exception as e:
-                logger.error(f"Tool {tool_name} failed: {e}")
+                logger.exception(f"Tool {tool_name} failed: {e}")
                 results[tool_name] = {
                     "status": "error",
                     "error": str(e),
@@ -177,7 +177,7 @@ class IncrementalEngine:
                 results[tool_name] = tool_result
 
             except Exception as e:
-                logger.error(f"Tool {tool_name} failed: {e}")
+                logger.exception(f"Tool {tool_name} failed: {e}")
                 results[tool_name] = {
                     "status": "error",
                     "error": str(e),
@@ -222,14 +222,13 @@ class IncrementalEngine:
         new_results = await self._execute_tool_on_files(tool, tool_name, changed_file_paths)
 
         # Merge with cached results
-        merged = self.result_cache.merge_results(
+        return self.result_cache.merge_results(
             tool_name=tool_name,
             new_results=new_results,
             changed_files=changes.changed_files,
             deleted_files=changes.deleted_files,
         )
 
-        return merged
 
     async def _execute_tool_on_files(self, tool: Any, tool_name: str, file_paths: list[Path]) -> dict[str, Any]:
         """Execute a tool on specific files."""

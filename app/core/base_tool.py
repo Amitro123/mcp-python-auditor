@@ -71,6 +71,16 @@ class BaseTool(ABC):
     def description(self) -> str:
         """Return tool description."""
 
+    @property
+    def cache_patterns(self) -> list[str]:
+        """File patterns this tool depends on for caching.
+
+        Returns:
+            List of glob patterns (e.g., ["**/*.py", "requirements.txt"])
+            Default is Python files only.
+        """
+        return ["**/*.py"]
+
     def validate_path(self, path: str | Path, project_root: Path | None = None) -> bool:
         """Validate path and ensure it's not inside an ignored directory.
 
@@ -110,11 +120,7 @@ class BaseTool(ABC):
 
         # Check if any part of the RELATIVE path is in the ignored list
         ignored_lower = {d.lower() for d in self.IGNORED_DIRECTORIES}
-        for part in parts_to_check:
-            if part.lower() in ignored_lower:
-                return False
-
-        return True
+        return all(part.lower() not in ignored_lower for part in parts_to_check)
 
     def walk_project_files(self, root_path: Path, extension: str = ".py") -> Generator[Path, None, None]:
         """Walk project files while respecting the centralized exclusion list.

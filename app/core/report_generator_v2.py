@@ -111,7 +111,7 @@ class ReportGeneratorV2:
         total_ms = 0
         found_any = False
 
-        for key, value in tool_results.items():
+        for value in tool_results.values():
             if not isinstance(value, dict):
                 continue
 
@@ -139,7 +139,7 @@ class ReportGeneratorV2:
         score: int,
         tool_results: dict[str, Any],
         timestamp: datetime,
-        scanned_files: list[str] = None,
+        scanned_files: list[str] | None = None,
     ) -> str:
         """Generate an audit report using Jinja2 template rendering with pre-calculated scores.
 
@@ -291,7 +291,7 @@ class ReportGeneratorV2:
         except ImportError:
             logger.warning("⚠️ audit_validator module not found, skipping integrity check")
         except Exception as e:
-            logger.error(f"❌ Integrity validation failed: {e}")
+            logger.exception(f"❌ Integrity validation failed: {e}")
 
     def generate_html_report(
         self,
@@ -300,7 +300,7 @@ class ReportGeneratorV2:
         score: int,
         tool_results: dict[str, Any],
         timestamp: datetime,
-        scanned_files: list[str] = None,
+        scanned_files: list[str] | None = None,
     ) -> str:
         """Generate an HTML audit report with styling.
 

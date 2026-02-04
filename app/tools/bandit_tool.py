@@ -54,6 +54,7 @@ class BanditTool(BaseTool):
                 str(target_path),
                 "-f",
                 "json",
+                "-q",  # Suppress INFO logs that contaminate JSON output
                 "--exit-zero",
             ]
 
@@ -99,7 +100,7 @@ class BanditTool(BaseTool):
 
             # If metrics doesn't have totals, count unique files from results
             if files_scanned == 0 and issues:
-                files_scanned = len(set(issue.get("filename", "") for issue in issues))
+                files_scanned = len({issue.get("filename", "") for issue in issues})
 
             # Categorize by severity
             severity_counts = self._count_by_severity(issues)
@@ -115,7 +116,7 @@ class BanditTool(BaseTool):
             }
 
         except Exception as e:
-            logger.error(f"Bandit analysis failed: {e}")
+            logger.exception(f"Bandit analysis failed: {e}")
             return {
                 "tool": "bandit",
                 "status": "error",
@@ -151,15 +152,7 @@ class BanditTool(BaseTool):
             target_path = Path(project_path).resolve()
 
             cmd = (
-                [
-                    sys.executable,
-                    "-m",
-                    "bandit",
-                    "-c",
-                    "pyproject.toml",
-                ]
-                + files
-                + ["-f", "json", "--exit-zero"]
+                [sys.executable, "-m", "bandit", "-c", "pyproject.toml", *files, "-f", "json", "--exit-zero"]
             )
 
             try:
@@ -207,7 +200,7 @@ class BanditTool(BaseTool):
             }
 
         except Exception as e:
-            logger.error(f"Bandit file analysis failed: {e}")
+            logger.exception(f"Bandit file analysis failed: {e}")
             return {
                 "tool": "bandit",
                 "status": "error",

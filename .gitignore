@@ -122,3 +122,22 @@ SELF_AUDIT_REPORT.md
 
 # Archive (legacy code from MCP phase)
 archive/
+
+# Tool outputs and temporary analysis
+*.json
+!pyproject.toml
+!package.json
+!tsconfig.json
+analyze_*.py
+verify_*.py
+
+# User-specific files
+AMIT_CODING_PREFERENCES.md
+.clinerules
+
+# Windows reserved filenames (prevent accidental creation)
+nul
+NUL
+CON
+PRN
+AUX

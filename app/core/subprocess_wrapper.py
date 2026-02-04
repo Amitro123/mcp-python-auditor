@@ -48,15 +48,15 @@ class SubprocessWrapper:
             return success, result.stdout, result.stderr
 
         except subprocess.TimeoutExpired:
-            logger.error(f"Command timed out after {timeout}s: {' '.join(command)}")
+            logger.exception(f"Command timed out after {timeout}s: {' '.join(command)}")
             return False, "", f"Command timed out after {timeout}s"
 
         except FileNotFoundError:
-            logger.error(f"Command not found: {cmd_name}")
+            logger.exception(f"Command not found: {cmd_name}")
             return False, "", f"Command not found: {cmd_name}"
 
         except Exception as e:
-            logger.error(f"Command failed: {e}")
+            logger.exception(f"Command failed: {e}")
             return False, "", str(e)
 
     @staticmethod
@@ -89,5 +89,5 @@ class SubprocessWrapper:
             Tuple of (success, stdout, stderr)
 
         """
-        command = ["python", "-m", module] + args
+        command = ["python", "-m", module, *args]
         return SubprocessWrapper.run_command(command, cwd, timeout)

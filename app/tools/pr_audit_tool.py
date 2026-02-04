@@ -31,7 +31,7 @@ class PRAuditTool(BaseTool):
     def description(self) -> str:
         return "Runs security and quality scans on changed files for PR gatekeeper"
 
-    def analyze(self, project_path: Path, changed_files: list[str] = None) -> dict[str, Any]:
+    def analyze(self, project_path: Path, changed_files: list[str] | None = None) -> dict[str, Any]:
         """Analyze changed files for PR.
 
         Args:
@@ -194,7 +194,7 @@ class PRAuditTool(BaseTool):
         tests_passed: bool = True,
         test_output: str = "",
         run_tests: bool = True,
-        target: Path = None,
+        target: Path | None = None,
     ) -> str:
         """Generate Markdown report for PR audit."""
         score = result.get("score", 0)

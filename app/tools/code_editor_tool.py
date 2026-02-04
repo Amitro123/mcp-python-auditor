@@ -63,7 +63,7 @@ class CodeEditorTool:
             }
 
         except Exception as e:
-            logger.error(f"Failed to delete line from {file_path}: {e}")
+            logger.exception(f"Failed to delete line from {file_path}: {e}")
             return {"status": "error", "error": str(e)}
 
     def restore_backup(self, file_path: str) -> dict[str, Any]:

@@ -102,7 +102,7 @@ class ResultCache:
             self._caches[tool_name] = result
             logger.info(f"Saved {tool_name} cache ({len(result.file_results)} files)")
         except OSError as e:
-            logger.error(f"Failed to save {tool_name} cache: {e}")
+            logger.exception(f"Failed to save {tool_name} cache: {e}")
 
     def merge_results(
         self,
@@ -245,13 +245,12 @@ class ResultCache:
     ) -> dict[str, Any]:
         """Aggregate results for simple tools (bandit, deadcode, secrets)."""
         all_items = self._flatten_items(file_results)
-        result = {
+        return {
             "tool": tool,
             "status": status_found if all_items else "clean",
             count_key: len(all_items),
             items_key: all_items[:limit] if limit else all_items,
         }
-        return result
 
     def _aggregate_ruff(self, file_results: dict[str, Any]) -> dict[str, Any]:
         """Aggregate ruff results by category."""

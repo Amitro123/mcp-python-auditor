@@ -82,51 +82,63 @@ class CacheManager:
     def _get_files_hash(self, file_patterns: list[str]) -> dict[str, str]:
         """Get hash of all files matching the patterns.
 
-        Args:
-            file_patterns: List of glob patterns (e.g., ["*.py", "requirements.txt"])
-
-        Returns:
-            Dictionary mapping relative file paths to their MD5 hashes
-
+        Optimized to walk the directory tree once and prune ignored directories early.
         """
+        import os
+
         file_hashes = {}
+        ignored_dirs = {"node_modules", ".venv", "venv", ".git", "__pycache__", ".pytest_cache", "dist", "build", ".audit_cache", ".idea", ".vscode"}
 
-        for pattern in file_patterns:
-            try:
-                # Handle both glob patterns and specific files
-                if "*" in pattern:
-                    # Glob pattern
-                    for file_path in self.project_path.rglob(pattern):
-                        if file_path.is_file():
-                            # Skip cache directory itself
-                            if ".audit_cache" in str(file_path):
-                                continue
-                            # Skip common non-source directories
-                            if any(
-                                skip in str(file_path)
-                                for skip in [
-                                    "node_modules",
-                                    ".venv",
-                                    "venv",
-                                    ".git",
-                                    "__pycache__",
-                                    ".pytest_cache",
-                                    "dist",
-                                    "build",
-                                ]
-                            ):
-                                continue
+        # Windows reserved filenames that should never be hashed
+        windows_reserved = {"nul", "con", "prn", "aux", "com1", "com2", "com3", "com4", "lpt1", "lpt2", "lpt3", "nul.", "con.", "prn.", "aux."}
 
-                            rel_path = str(file_path.relative_to(self.project_path))
-                            file_hashes[rel_path] = self._compute_file_hash(file_path)
-                else:
-                    # Specific file
-                    file_path = self.project_path / pattern
-                    if file_path.exists() and file_path.is_file():
-                        rel_path = str(file_path.relative_to(self.project_path))
-                        file_hashes[rel_path] = self._compute_file_hash(file_path)
-            except Exception as e:
-                logger.debug(f"Error processing pattern {pattern}: {e}")
+        # Normalize patterns
+        # Separate exact files from glob patterns to optimize finding specific files
+        exact_files = [p for p in file_patterns if "*" not in p and "?" not in p]
+        glob_patterns = [p for p in file_patterns if "*" in p or "?" in p]
+
+        # 1. Handle exact files first (fastest)
+        for rel_path_str in exact_files:
+            file_path = self.project_path / rel_path_str
+            if file_path.exists() and file_path.is_file():
+                file_hashes[rel_path_str] = self._compute_file_hash(file_path)
+
+        # 2. If we have glob patterns, walk the tree once
+        if glob_patterns:
+            base_path = str(self.project_path)
+
+            for root, dirs, files in os.walk(base_path, topdown=True):
+                # Modify dirs in-place to skip ignored directories
+                # This prevents os.walk from entering them
+                dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+
+                for filename in files:
+                    # Skip Windows reserved filenames
+                    if filename.lower() in windows_reserved:
+                        continue
+
+                    # Construct relative path
+                    full_path = os.path.join(root, filename)
+                    rel_path = os.path.relpath(full_path, base_path)
+
+                    # Check if file matches any pattern
+                    # Convert path to forward slashes for matching if needed, but fnmatch usually handles OS specific
+                    # For recursive globs like **/*.py, we need special handling if using simple fnmatch
+                    # But simpler approach: check if it matches any pattern
+
+                    matched = False
+                    for pattern in glob_patterns:
+                        # Handle recursive globs manually or assume simple patterns?
+                        # fnmatch doesn't handle **/ correctly in all versions/platforms the way glob does.
+                        # However, audit patterns are usually simple or recursive.
+
+                        # Use Path.match logic which is robust
+                        if Path(rel_path).match(pattern):
+                            matched = True
+                            break
+
+                    if matched:
+                        file_hashes[rel_path] = self._compute_file_hash(Path(full_path))
 
         return file_hashes
 
@@ -179,7 +191,7 @@ class CacheManager:
                 return None
 
             # Cache is valid!
-            logger.info(f"✅ Using cached result for {tool_name} (age: {cache_age:.0f}s)")
+            logger.info(f"[CACHE] Using cached result for {tool_name} (age: {cache_age:.0f}s)")
             return cache_data["result"]
 
         except json.JSONDecodeError:

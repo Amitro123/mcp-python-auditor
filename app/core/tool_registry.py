@@ -35,7 +35,7 @@ class ToolRegistry:
             try:
                 self._load_tool_from_file(tool_file)
             except Exception as e:
-                logger.error(f"Failed to load tool from {tool_file}: {e}")
+                logger.exception(f"Failed to load tool from {tool_file}: {e}")
 
     def _load_tool_from_file(self, tool_file: Path) -> None:
         """Load a tool from a Python file."""
@@ -46,7 +46,7 @@ class ToolRegistry:
             module = importlib.import_module(module_name)
 
             # Find all BaseTool subclasses in the module
-            for name, obj in inspect.getmembers(module, inspect.isclass):
+            for _name, obj in inspect.getmembers(module, inspect.isclass):
                 if issubclass(obj, BaseTool) and obj is not BaseTool:
                     # Instantiate the tool
                     tool_instance = obj()
@@ -55,7 +55,7 @@ class ToolRegistry:
                     logger.info(f"Loaded tool: {tool_instance.name}")
 
         except Exception as e:
-            logger.error(f"Error loading module {module_name}: {e}")
+            logger.exception(f"Error loading module {module_name}: {e}")
             raise
 
     def get_tool(self, tool_name: str) -> BaseTool | None:

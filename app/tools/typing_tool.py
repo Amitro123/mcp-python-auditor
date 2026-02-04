@@ -62,7 +62,7 @@ class TypingTool(BaseTool):
             }
 
         except Exception as e:
-            logger.error(f"Type coverage analysis failed: {e}")
+            logger.exception(f"Type coverage analysis failed: {e}")
             return {"error": str(e)}
 
     def _analyze_file(self, file_path: Path, project_path: Path) -> dict[str, list[dict[str, Any]]]:
@@ -99,7 +99,7 @@ class TypingTool(BaseTool):
                         typed_args = sum(1 for arg in node.args.args if arg.annotation is not None)
 
                     # Categorize
-                    if has_return_type and (total_args == 0 or typed_args == total_args):
+                    if has_return_type and (total_args in (0, typed_args)):
                         results["typed"].append(func_info)
                     elif has_return_type or typed_args > 0:
                         results["partial"].append(func_info)

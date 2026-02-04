@@ -58,7 +58,7 @@ def get_project_files(root_path: Path) -> list[str]:
         if (root_path / ".git").exists() or _is_inside_git_work_tree(root_path):
             files = _get_git_files(root_path)
             if files:
-                logger.info(f"✅ Discovered {len(files)} files using Git.")
+                logger.info(f"[OK] Discovered {len(files)} files using Git.")
                 return files
     except Exception as e:
         logger.warning(f"Git discovery failed: {e}. Falling back to os.walk.")

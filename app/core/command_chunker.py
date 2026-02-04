@@ -81,10 +81,10 @@ def run_tool_in_chunks(
                 combined_stdout += result.stdout
 
         except subprocess.TimeoutExpired:
-            logger.error(f"Chunk {i}/{len(chunks)} timed out")
+            logger.exception(f"Chunk {i}/{len(chunks)} timed out")
             combined_stderr += f"\n[CHUNK {i} TIMEOUT]"
         except Exception as e:
-            logger.error(f"Chunk {i}/{len(chunks)} failed: {e}")
+            logger.exception(f"Chunk {i}/{len(chunks)} failed: {e}")
             combined_stderr += f"\n[CHUNK {i} ERROR: {e}]"
 
     # Build merged result
@@ -95,7 +95,7 @@ def run_tool_in_chunks(
         combined_stdout = json.dumps(merged_data, indent=2)
 
     return subprocess.CompletedProcess(
-        args=base_cmd + [f"<{len(files)} files in {len(chunks)} chunks>"],
+        args=[*base_cmd, f"<{len(files)} files in {len(chunks)} chunks>"],
         returncode=0,
         stdout=combined_stdout,
         stderr=combined_stderr,

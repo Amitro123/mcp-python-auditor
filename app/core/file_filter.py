@@ -178,4 +178,4 @@ class FileFilter:
             Dictionary mapping tool names to their stats
 
         """
-        return {tool_name: self.get_stats(tool_name) for tool_name in self.TOOL_CONFIGS.keys()}
+        return {tool_name: self.get_stats(tool_name) for tool_name in self.TOOL_CONFIGS}

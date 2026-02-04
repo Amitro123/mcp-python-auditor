@@ -22,7 +22,7 @@ class DuplicationTool(BaseTool):
     def description(self) -> str:
         return "Detects duplicate functions and code patterns using AST and fuzzy matching"
 
-    def analyze(self, project_path: Path, file_list: list[str] = None) -> dict[str, Any]:
+    def analyze(self, project_path: Path, file_list: list[str] | None = None) -> dict[str, Any]:
         """Analyze code for duplicates using explicit file list.
 
         SAFETY-FIRST EXECUTION:
@@ -55,7 +55,7 @@ class DuplicationTool(BaseTool):
             file_list = filter_python_files(file_list)
             if not validate_file_list(file_list, "Duplication"):
                 return {"error": "Invalid file list (contains excluded paths or empty)"}
-            logger.info(f"✅ Duplication: Analyzing {len(file_list)} Python files (explicit list)")
+            logger.info(f"[OK] Duplication: Analyzing {len(file_list)} Python files (explicit list)")
 
         try:
             # Extract all functions from the project
@@ -71,10 +71,10 @@ class DuplicationTool(BaseTool):
                 "total_functions_analyzed": len(functions),
             }
         except Exception as e:
-            logger.error(f"Duplication analysis failed: {e}")
+            logger.exception(f"Duplication analysis failed: {e}")
             return {"error": str(e)}
 
-    def _extract_functions(self, path: Path, file_list: list[str] = None) -> list[dict[str, Any]]:
+    def _extract_functions(self, path: Path, file_list: list[str] | None = None) -> list[dict[str, Any]]:
         """Extract all functions from Python files."""
         functions = []
 
@@ -135,9 +135,8 @@ class DuplicationTool(BaseTool):
 
             # Remove docstrings
             for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)):
-                    if ast.get_docstring(node):
-                        node.body = node.body[1:] if len(node.body) > 1 else node.body
+                if isinstance(node, (ast.FunctionDef, ast.ClassDef, ast.Module)) and ast.get_docstring(node):
+                    node.body = node.body[1:] if len(node.body) > 1 else node.body
 
             # Convert back to code (this removes comments automatically)
             import astor
@@ -145,9 +144,8 @@ class DuplicationTool(BaseTool):
             normalized = astor.to_source(tree)
 
             # Remove extra whitespace
-            normalized = " ".join(normalized.split())
+            return " ".join(normalized.split())
 
-            return normalized
         except Exception:
             # Fallback: simple normalization
             lines = [line.strip() for line in code.split("\n")]
@@ -165,7 +163,7 @@ class DuplicationTool(BaseTool):
                 hash_groups[func["hash"]].append(func)
 
         # Find exact duplicates
-        for code_hash, funcs in hash_groups.items():
+        for funcs in hash_groups.values():
             if len(funcs) > 1:
                 duplicates.append(
                     {
@@ -179,7 +177,7 @@ class DuplicationTool(BaseTool):
 
         # Find similar functions (fuzzy matching)
         # Only check functions not already marked as exact duplicates
-        processed_hashes = set(h for h, funcs in hash_groups.items() if len(funcs) > 1)
+        processed_hashes = {h for h, funcs in hash_groups.items() if len(funcs) > 1}
         remaining_functions = [f for f in functions if f["hash"] not in processed_hashes and f["length"] >= 5]
 
         # OPTIMIZATION: Limit comparisons to avoid O(n²) slowdown

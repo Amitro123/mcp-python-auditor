@@ -176,10 +176,7 @@ class FileTracker:
 
         # Additional checks for common excludes
         path_str = str(path)
-        if any(excl in path_str for excl in [".venv", "venv", "site-packages", "node_modules"]):
-            return False
-
-        return True
+        return not any(excl in path_str for excl in [".venv", "venv", "site-packages", "node_modules"])
 
     def _compute_hash(self, file_path: Path) -> str:
         """Compute MD5 hash of file contents."""

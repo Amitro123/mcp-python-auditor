@@ -88,7 +88,7 @@ class AutoFixOrchestrator:
             "status": "success",
             "fixes_applied": len(applied_fixes),
             "fixes_skipped": len(skipped_fixes),
-            "files_modified": list(set(f["file"] for f in applied_fixes)),
+            "files_modified": list({f["file"] for f in applied_fixes}),
         }
 
     def _classify_fixes(self, report: dict) -> list[dict]:
@@ -196,7 +196,7 @@ class AutoFixOrchestrator:
             return response == "y"
 
         except Exception as e:
-            logger.error(f"Failed to read {file_path}: {e}")
+            logger.exception(f"Failed to read {file_path}: {e}")
             return False
 
     def _apply_fix(self, fix: dict) -> dict[str, Any]:
@@ -220,7 +220,7 @@ class AutoFixOrchestrator:
 
         print(f"\n{Colors.GREEN}✅ Fixes Applied: {len(applied)}{Colors.RESET}")
         if applied:
-            files_modified = set(f["file"] for f in applied)
+            files_modified = {f["file"] for f in applied}
             for file in sorted(files_modified):
                 count = sum(1 for f in applied if f["file"] == file)
                 print(f"   • {file} ({count} fix{'es' if count > 1 else ''})")

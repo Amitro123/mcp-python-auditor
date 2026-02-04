@@ -20,6 +20,11 @@ class PipAuditTool(BaseTool):
     def description(self) -> str:
         return "Scans Python dependencies for known security vulnerabilities using pip-audit"
 
+    @property
+    def cache_patterns(self) -> list[str]:
+        """Pip audit depends on dependency manifest files."""
+        return ["requirements.txt", "pyproject.toml", "setup.py", "Pipfile", "Pipfile.lock"]
+
     def analyze(self, project_path: Path) -> dict[str, Any]:
         """Run pip-audit vulnerability scan.
 
@@ -47,18 +52,27 @@ class PipAuditTool(BaseTool):
             pyproject_file = target_path / "pyproject.toml"
 
             # Common flags to prevent hanging: timeout and disable progress spinner
-            common_flags = ["--timeout", "30", "--progress-spinner=off"]
+            # Use cache to speed up subsequent runs (stores vulnerability DB locally)
+            cache_dir = target_path / ".audit_cache" / "pip-audit"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            common_flags = [
+                "--timeout",
+                "30",
+                "--progress-spinner=off",
+                "--cache-dir",
+                str(cache_dir),
+            ]
 
             if req_file.exists():
-                cmd = ["pip-audit", "-r", str(req_file), "-f", "json"] + common_flags
+                cmd = ["pip-audit", "-r", str(req_file), "-f", "json", *common_flags]
                 scan_mode = "requirements.txt"
             elif pyproject_file.exists():
                 # Try pyproject.toml if available
-                cmd = ["pip-audit", "-f", "json"] + common_flags
+                cmd = ["pip-audit", "-f", "json", *common_flags]
                 scan_mode = "pyproject.toml"
             else:
                 # Fallback to environment scan
-                cmd = ["pip-audit", "-f", "json"] + common_flags
+                cmd = ["pip-audit", "-f", "json", *common_flags]
                 scan_mode = "environment"
 
             try:
@@ -111,7 +125,7 @@ class PipAuditTool(BaseTool):
             }
 
         except Exception as e:
-            logger.error(f"Pip-audit analysis failed: {e}")
+            logger.exception(f"Pip-audit analysis failed: {e}")
             return {
                 "tool": "pip-audit",
                 "status": "error",

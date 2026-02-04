@@ -87,4 +87,10 @@ class ScoringEngine:
         if len(exact_dups) > 10:
             breakdown.quality_penalty += min(len(exact_dups) - 10, 15)
 
+        # Maintenance penalty - cleanup items (cache dirs, temp files, old reports)
+        cleanup = audit_results.get("cleanup", {})
+        cleanup_count = cleanup.get("total_items", cleanup.get("total", 0))
+        if cleanup_count > 50:
+            breakdown.maintenance_penalty += 5  # -5 points if >50 cleanup items
+
         return breakdown

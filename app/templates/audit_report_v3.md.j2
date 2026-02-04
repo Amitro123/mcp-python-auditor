@@ -44,7 +44,17 @@
 
 {% else %}
 ✅ No security issues detected by Bandit
+{% endif %}
 
+{% if secrets.total_secrets > 0 %}
+### 🔑 Secrets Detected
+⚠️ **Found {{ secrets.total_secrets }} potential secrets!**
+
+| File | Type | Secret (Masked) | Line |
+|------|------|-----------------|------|
+{% for secret in secrets.secrets %}
+| `{{ secret.file }}` | {{ secret.type }} | `{{ secret.hashed_secret }}` | {{ secret.line }} |
+{% endfor %}
 {% endif %}
 
 ---

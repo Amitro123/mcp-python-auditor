@@ -20,6 +20,11 @@ class TestsTool(BaseTool):
     def description(self) -> str:
         return "Analyzes test coverage, test organization, and test types (unit/integration/e2e)"
 
+    @property
+    def cache_patterns(self) -> list[str]:
+        """Tests depend on test files and pytest configuration."""
+        return ["tests/**/*.py", "test/**/*.py", "**/*_test.py", "pytest.ini", "pyproject.toml", "setup.cfg"]
+
     def analyze(self, project_path: Path) -> dict[str, Any]:
         """Analyze project tests.
 
@@ -71,7 +76,7 @@ class TestsTool(BaseTool):
 
             return result
         except Exception as e:
-            logger.error(f"Tests analysis failed: {e}")
+            logger.exception(f"Tests analysis failed: {e}")
             return {"error": str(e)}
 
     def _find_test_files(self, path: Path) -> list[Path]:
@@ -205,14 +210,11 @@ class TestsTool(BaseTool):
                 elif "<Module " in line and ".py>" in line:
                     module_name = line.split("<Module ")[1].split(">")[0]
                     # Build full module path from packages + module
-                    current_module = "/".join(current_path + [module_name])
+                    current_module = "/".join([*current_path, module_name])
 
                 # Extract test functions/coroutines
                 elif current_module and ("<Function " in line or "<Coroutine " in line):
-                    if "<Function " in line:
-                        test_name = line.split("<Function ")[1].split(">")[0]
-                    else:
-                        test_name = line.split("<Coroutine ")[1].split(">")[0]
+                    test_name = line.split("<Function ")[1].split(">")[0] if "<Function " in line else line.split("<Coroutine ")[1].split(">")[0]
 
                     # Build full test ID: tests/e2e/test_audit_workflows.py::test_complete
                     test_id = f"{current_module}::{test_name}"
@@ -341,11 +343,10 @@ class TestsTool(BaseTool):
         result = {"coverage_percent": 0, "coverage_report": "", "warning": None}
 
         # Check for missing pytest-cov
-        if "No module named" in stderr:
-            if "pytest_cov" in stderr or "coverage" in stderr:
-                result["warning"] = "⚠️ MISSING: 'pytest-cov' not installed. Coverage unavailable."
-                logger.warning(result["warning"])
-                return result
+        if "No module named" in stderr and ("pytest_cov" in stderr or "coverage" in stderr):
+            result["warning"] = "⚠️ MISSING: 'pytest-cov' not installed. Coverage unavailable."
+            logger.warning(result["warning"])
+            return result
 
         # Try multiple regex patterns for coverage percentage
         coverage_patterns = [
@@ -364,10 +365,9 @@ class TestsTool(BaseTool):
         # Fallback: find percentage near TOTAL/coverage keywords
         if result["coverage_percent"] == 0:
             for line in output.splitlines():
-                if "total" in line.lower() or "coverage" in line.lower():
-                    if match := re.search(r"(\d+)%", line):
-                        result["coverage_percent"] = int(match.group(1))
-                        break
+                if ("total" in line.lower() or "coverage" in line.lower()) and (match := re.search(r"(\d+)%", line)):
+                    result["coverage_percent"] = int(match.group(1))
+                    break
 
         # Extract coverage report table
         if table_match := re.search(r"(Name\s+Stmts\s+Miss.*?TOTAL.*?\d+%)", output, re.DOTALL):
